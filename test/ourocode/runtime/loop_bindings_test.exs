@@ -289,6 +289,53 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
              LoopBindings.answer_interview(start_isolated_agent(), "x")
   end
 
+  test "interview reasoning prefers structured MCP metadata", %{runtime: runtime} do
+    {:ok, agent, _options} = LoopBindings.attach(%{status: :healthy, runtime: runtime})
+
+    assert :ok ==
+             LoopBindings.enqueue(agent, %{
+               type: :child_event,
+               source: :ouroboros,
+               parent_call_id: "parent-iv-meta-1",
+               child_id: "child-iv-meta-1",
+               payload: %{
+                 "token" => "Which MCP transport should the UI prioritize?",
+                 "meta" => %{
+                   "session_id" => "iv-meta-1",
+                   "ambiguity_score" => 0.31,
+                   "milestone" => "scope",
+                   "seed_ready" => false,
+                   "internal_reasoning" => [
+                     "phase: answer",
+                     "rounds: 1 answered / 2 total",
+                     "next: ask user to answer pending question"
+                   ],
+                   "interview_reasoning" => %{
+                     "phase" => "answer",
+                     "pending_question" => true,
+                     "next_action" => "ask user to answer pending question"
+                   }
+                 }
+               }
+             })
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.question =~ "Which MCP transport"
+    assert snap.interview.ambiguity == 0.31
+    assert snap.interview.milestone == "scope"
+    assert snap.interview.seed_ready == false
+    assert snap.interview.session_id == "iv-meta-1"
+
+    assert snap.interview.mcp_reasoning == [
+             "phase: answer",
+             "rounds: 1 answered / 2 total",
+             "next: ask user to answer pending question"
+           ]
+
+    assert snap.interview.mcp_reasoning_state["phase"] == "answer"
+  end
+
   test "interview session loop: question → ANSWER → followup → seed-ready" do
     {:ok, agent} = LoopBindings.start_link()
 

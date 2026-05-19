@@ -191,6 +191,32 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     refute activity =~ "TOOL READ mix.exs"
   end
 
+  test "right column prefers MCP-provided internal reasoning lines" do
+    interview = %{
+      ambiguity: 0.31,
+      milestone: "scope",
+      seed_ready: false,
+      session_id: "interview_meta",
+      mcp_reasoning: [
+        "phase: answer",
+        "rounds: 1 answered / 2 total",
+        "next: ask user to answer pending question"
+      ]
+    }
+
+    result = %{pane_snapshot: fn -> %{interview: interview, paused: false} end}
+
+    right = Tui.interview_reasoning_lines(result)
+
+    assert "phase: answer" in right
+    assert "rounds: 1 answered / 2 total" in right
+    assert "next: ask user to answer pending question" in right
+
+    refute "ambiguity 0.31" in right
+    refute "milestone scope" in right
+    refute "seed-ready: no" in right
+  end
+
   test "active interview owns the left panel instead of duplicating activity below it" do
     block =
       {"INTERVIEW",

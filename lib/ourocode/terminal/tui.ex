@@ -1600,18 +1600,36 @@ defmodule Ourocode.Terminal.Tui do
       %{} = iv ->
         [
           status_line(iv, tick, paused?(result)),
-          session_line(iv),
-          ambiguity_line(iv),
-          milestone_line(iv),
-          seed_ready_line(iv),
+          mcp_reasoning_lines(iv),
+          fallback_reasoning_lines(iv),
           complete_line(iv)
         ]
-        |> Kernel.++(breakdown_lines(iv))
+        |> List.flatten()
         |> Enum.reject(&is_nil/1)
 
       _none ->
         []
     end
+  end
+
+  defp mcp_reasoning_lines(%{mcp_reasoning: lines}) when is_list(lines) do
+    lines
+    |> Enum.map(&flatten_line/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp mcp_reasoning_lines(_iv), do: []
+
+  defp fallback_reasoning_lines(%{mcp_reasoning: lines}) when is_list(lines) and lines != [],
+    do: []
+
+  defp fallback_reasoning_lines(iv) do
+    [
+      session_line(iv),
+      ambiguity_line(iv),
+      milestone_line(iv),
+      seed_ready_line(iv)
+    ] ++ breakdown_lines(iv)
   end
 
   # MCP-internal status the operator asked to see: when the question

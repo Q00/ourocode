@@ -700,6 +700,7 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp reuse_mcp_daemon?(nil, _current_backend, _requested_backend), do: false
   defp reuse_mcp_daemon?(%{mode: :external}, _current_backend, _requested_backend), do: true
+
   defp reuse_mcp_daemon?(_handle, current_backend, requested_backend),
     do: current_backend == requested_backend
 
@@ -1160,7 +1161,11 @@ defmodule Ourocode.Runtime.LoopBindings do
        when is_map(meta),
        do: meta
 
-  defp response_meta(_response), do: %{}
+  defp response_meta(response) do
+    response
+    |> response_text()
+    |> decode_text_meta()
+  end
 
   # Ouroboros writes the session id as `Session ID: <id>` (start),
   # `session_id="<id>"` (resume hint), or bare `Session <id>` (resume). The
@@ -1427,10 +1432,28 @@ defmodule Ourocode.Runtime.LoopBindings do
         %{state | interview: interview, paused: false}
 
       :none ->
-        if state.interview && meta != %{} do
-          %{state | interview: merge_interview_meta(state.interview, meta)}
-        else
-          state
+        cond do
+          state.interview && meta != %{} ->
+            %{state | interview: merge_interview_meta(state.interview, meta)}
+
+          meta != %{} && interview_meta?(meta) && String.trim(text) != "" ->
+            prev = state.interview || %{}
+
+            interview =
+              prev
+              |> Map.merge(%{
+                question: clean_markdown(text),
+                parent_call_id: Map.get(event, :parent_call_id) || prev[:parent_call_id],
+                child_id: Map.get(event, :child_id) || prev[:child_id],
+                waiting: false
+              })
+              |> merge_interview_meta(meta)
+              |> Map.delete(:answered)
+
+            %{state | interview: interview, paused: false}
+
+          true ->
+            state
         end
     end
   rescue
@@ -1439,14 +1462,75 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp merge_interview_meta(interview, meta) when is_map(interview) do
     interview
+    |> maybe_put(:ambiguity, numeric_meta_value(meta, "ambiguity_score"))
     |> maybe_put(:milestone, meta_value(meta, "milestone"))
     |> maybe_put(:seed_ready, meta_value(meta, "seed_ready"))
     |> maybe_put(:breakdown, meta_value(meta, "ambiguity_breakdown"))
     |> maybe_put(:session_id, meta_value(meta, "session_id"))
+    |> maybe_put(:mcp_reasoning, reasoning_lines(meta))
+    |> maybe_put(:mcp_reasoning_state, meta_value(meta, "interview_reasoning"))
   end
 
+  defp interview_meta?(meta) when is_map(meta) do
+    Enum.any?(
+      ["internal_reasoning", "interview_reasoning", "ambiguity_score", "milestone", "seed_ready"],
+      &(not is_nil(meta_value(meta, &1)))
+    )
+  end
+
+  defp interview_meta?(_meta), do: false
+
   defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp numeric_meta_value(meta, key) do
+    case meta_value(meta, key) do
+      value when is_float(value) -> value
+      value when is_integer(value) -> value / 1
+      value when is_binary(value) -> parse_float(value)
+      _other -> nil
+    end
+  end
+
+  defp reasoning_lines(meta) when is_map(meta) do
+    meta
+    |> meta_value("internal_reasoning")
+    |> normalize_reasoning_lines()
+  end
+
+  defp reasoning_lines(_meta), do: []
+
+  defp normalize_reasoning_lines(lines) when is_list(lines) do
+    lines
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.take(12)
+  end
+
+  defp normalize_reasoning_lines(line) when is_binary(line) do
+    line
+    |> String.split(~r/\r?\n/)
+    |> normalize_reasoning_lines()
+  end
+
+  defp normalize_reasoning_lines(_value), do: []
+
+  defp decode_text_meta(text) when is_binary(text) do
+    trimmed = String.trim(text)
+
+    if String.starts_with?(trimmed, "{") do
+      case Ourocode.Json.decode(trimmed) do
+        {:ok, %{} = body} -> body
+        _error -> %{}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp decode_text_meta(_text), do: %{}
 
   defp meta_value(meta, key) when is_map(meta) do
     case Map.fetch(meta, key) do
