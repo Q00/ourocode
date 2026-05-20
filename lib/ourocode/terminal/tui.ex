@@ -1319,8 +1319,14 @@ defmodule Ourocode.Terminal.Tui do
 
     turns
     |> Enum.take(-@dialogue_tail)
+    |> Enum.reject(&internal_dialogue_turn?/1)
     |> Enum.map(&dialogue_row/1)
   end
+
+  defp internal_dialogue_turn?(%{role: :main, text: text}) when is_binary(text),
+    do: leaked_router_prompt?(text)
+
+  defp internal_dialogue_turn?(_turn), do: false
 
   defp dialogue_row(%{role: role, text: text}) do
     {label, style} =
@@ -1332,6 +1338,24 @@ defmodule Ourocode.Terminal.Tui do
 
     {label <> "  " <> flatten_line(text), style}
   end
+
+  defp leaked_router_prompt?(text) when is_binary(text) do
+    flat = String.replace(text, ~r/\s+/, " ")
+
+    String.contains?(flat, [
+      "You are the answerer/router half",
+      "Routing rules (from the interview SKILL)",
+      "Tool protocol",
+      "Output exactly one directive as the first line",
+      "ANSWER [from-code] <answer>",
+      "ASK_USER <question for the human>"
+    ]) or
+      (String.length(flat) > 900 and
+         String.contains?(flat, "ANSWER [from-code]") and
+         String.contains?(flat, "ASK_USER"))
+  end
+
+  defp leaked_router_prompt?(_text), do: false
 
   # The LEFT-block activity under a plain question: a single animated line
   # carrying only the latest *clean* router trace — never the raw streamed

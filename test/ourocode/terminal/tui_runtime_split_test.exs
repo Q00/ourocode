@@ -407,6 +407,29 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert main_line == "MAIN  [from-code] Elixir escript"
   end
 
+  test "internal router prompts are hidden from the dialogue transcript" do
+    leaked = """
+    [from-code]. Describe what exists; never prescribe what a new feature should do.
+    Tool protocol — emit ONE directive as the first line, nothing before it:
+      ANSWER [from-code] <answer>
+      ASK_USER <question for the human>
+    Output exactly one directive as the first line.
+    """
+
+    dialogue = [
+      %{role: :main, text: leaked},
+      %{role: :mcp, text: "What change should this interview define?"}
+    ]
+
+    result = %{pane_snapshot: fn -> %{interview: %{dialogue: dialogue}, paused: false} end}
+
+    rows = Tui.dialogue_rows(result, false)
+
+    assert [{mcp_line, :warn}] = rows
+    assert mcp_line == "MCP   What change should this interview define?"
+    refute Enum.any?(rows, fn {line, _style} -> line =~ "Tool protocol" end)
+  end
+
   test "the open MCP question is dropped from history when the picker shows it" do
     dialogue = [
       %{role: :mcp, text: "(ambiguity 0.7) pick transport?"},

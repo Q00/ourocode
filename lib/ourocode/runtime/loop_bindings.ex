@@ -960,8 +960,25 @@ defmodule Ourocode.Runtime.LoopBindings do
            on_reason: on_reason
          ) do
       {:answer, payload_text, source} ->
-        push_dialogue(agent, :main, ensure_answer_prefix(payload_text, source))
-        followup(agent, st, payload_text, streak_after(st.streak, source))
+        if leaked_router_prompt?(payload_text) do
+          push_router_trace(agent, "router: discarded echoed prompt and asked user")
+          push_dialogue(agent, :main, "→ asking you: " <> clean_markdown(question))
+          enqueue(agent, ask_user_wonder_event(st.parent_call_id, st.round, question, []))
+
+          case await_user_answer(agent, st.parent_call_id, question) do
+            {:done, text} ->
+              push_dialogue(agent, :user, text)
+              enqueue_complete(agent, st.parent_call_id, :user_done)
+              :ok
+
+            {:answer, user_text} ->
+              push_dialogue(agent, :user, user_text)
+              followup(agent, st, ensure_user_prefix(user_text), 0)
+          end
+        else
+          push_dialogue(agent, :main, ensure_answer_prefix(payload_text, source))
+          followup(agent, st, payload_text, streak_after(st.streak, source))
+        end
 
       {:ask_user, prompt, options} ->
         # SKILL PATH 2: present as a wonderTool checkpoint (model-suggested
@@ -1289,7 +1306,7 @@ defmodule Ourocode.Runtime.LoopBindings do
        when role in [:mcp, :main, :user] and is_binary(text) do
     trimmed = String.trim(text)
 
-    if trimmed == "" do
+    if trimmed == "" or (role == :main and leaked_router_prompt?(trimmed)) do
       :ok
     else
       Agent.update(agent, fn state ->
@@ -1305,6 +1322,24 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp push_dialogue(_agent, _role, _text), do: :ok
+
+  defp leaked_router_prompt?(text) when is_binary(text) do
+    flat = String.replace(text, ~r/\s+/, " ")
+
+    String.contains?(flat, [
+      "You are the answerer/router half",
+      "Routing rules (from the interview SKILL)",
+      "Tool protocol",
+      "Output exactly one directive as the first line",
+      "ANSWER [from-code] <answer>",
+      "ASK_USER <question for the human>"
+    ]) or
+      (String.length(flat) > 900 and
+         String.contains?(flat, "ANSWER [from-code]") and
+         String.contains?(flat, "ASK_USER"))
+  end
+
+  defp leaked_router_prompt?(_text), do: false
 
   # MCP wire-encodes the dialectic signal as `(ambiguity: 0.42) <question>`.
   # The operator asked to see that score immediately, so the MCP turn keeps

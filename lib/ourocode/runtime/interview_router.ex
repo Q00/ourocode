@@ -218,7 +218,10 @@ defmodule Ourocode.Runtime.InterviewRouter do
   # known footers so strict routing survives real provider wrappers without
   # accepting arbitrary prose as a decision.
   defp first_directive_segment(text) do
-    lines = String.split(text, "\n", trim: false)
+    lines =
+      text
+      |> strip_echoed_prompt()
+      |> String.split("\n", trim: false)
 
     case Enum.find_index(lines, &(String.trim(&1) =~ @directive_re)) do
       nil ->
@@ -236,6 +239,13 @@ defmodule Ourocode.Runtime.InterviewRouter do
           |> Enum.find("", &(&1 != ""))
 
         {line, Enum.join(segment_lines, "\n")}
+    end
+  end
+
+  defp strip_echoed_prompt(text) do
+    case Regex.split(~r/^\s*## Your reply\s*$/m, text, parts: 2) do
+      [_before, after_marker] -> after_marker
+      _no_marker -> text
     end
   end
 

@@ -271,6 +271,30 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
     assert Enum.map(options, & &1.label) == ["Polish UX", "Package release"]
   end
 
+  test "parser ignores echoed router prompt before the actual reply marker" do
+    echoed = """
+    You are the answerer/router half of an Ouroboros Socratic interview.
+
+    Tool protocol — emit ONE directive as the first line, nothing before it:
+      TOOL READ <relative/path>
+      ANSWER [from-code] <answer>
+      ANSWER [from-research] <answer>
+      ASK_USER <question for the human>
+
+    ## MCP question (turn 1/6)
+    What change do you want to define?
+
+    ## Your reply
+    ASK_USER What change should this interview define?
+    - Bug fix | Identify existing broken behavior
+    - Feature | Define a new capability
+    """
+
+    assert {:ask_user, prompt, options} = InterviewRouter.parse_directive(echoed)
+    assert prompt == "What change should this interview define?"
+    assert Enum.map(options, & &1.label) == ["Bug fix", "Feature"]
+  end
+
   test "invalid arguments return a structured error, never a guess" do
     model = scripted_model(["ANSWER x"])
     assert {:error, :invalid_router_args} = InterviewRouter.decide(123, ctx(), model)
