@@ -52,7 +52,10 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
 
   @behaviour Ourocode.Runtime.Adapter
 
+  alias Ourocode.Plugin.UserLevel.ArtifactWatcher
   alias Ourocode.Plugin.UserLevel.Capability
+  alias Ourocode.Plugin.UserLevel.Continuation
+  alias Ourocode.Plugin.UserLevel.DecisionJournal
   alias Ourocode.Plugin.UserLevel.PreflightResult
   alias Ourocode.Plugin.UserLevel.Resolver
   alias Ourocode.TaskRequest
@@ -67,7 +70,9 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
           required(:argv) => [String.t()],
           required(:command) => String.t(),
           optional(:execution) => map(),
-          optional(:blocked_reason) => atom()
+          optional(:blocked_reason) => atom(),
+          optional(:artifacts) => [ArtifactWatcher.artifact()],
+          optional(:continuation) => map()
         }
 
   @impl true
@@ -122,16 +127,18 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
     do: {:blocked, :not_user_level_plugin_input}
 
   defp finalize({:blocked, reason}, task_request, preflight, context) do
-    {:ok,
-     %{
-       type: :user_level_plugin_invocation,
-       status: :blocked,
-       task_request_id: to_string(task_request.id),
-       preflight: preflight,
-       argv: argv_for(preflight, context),
-       command: command_for(context),
-       blocked_reason: reason
-     }}
+    envelope = %{
+      type: :user_level_plugin_invocation,
+      status: :blocked,
+      task_request_id: to_string(task_request.id),
+      preflight: preflight,
+      argv: argv_for(preflight, context),
+      command: command_for(context),
+      blocked_reason: reason
+    }
+
+    record_journal(:blocked, envelope, preflight, [], nil, context)
+    {:ok, envelope}
   end
 
   defp finalize(:allowed, task_request, preflight, context) do
@@ -149,29 +156,79 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
       true ->
         case runner.(command, argv, runner_opts(context)) do
           {:ok, execution} ->
-            {:ok,
-             %{
-               type: :user_level_plugin_invocation,
-               status: :invoked,
-               task_request_id: to_string(task_request.id),
-               preflight: preflight,
-               argv: argv,
-               command: command,
-               execution: execution
-             }}
+            envelope = %{
+              type: :user_level_plugin_invocation,
+              status: :invoked,
+              task_request_id: to_string(task_request.id),
+              preflight: preflight,
+              argv: argv,
+              command: command,
+              execution: execution
+            }
+
+            {artifacts, continuation} = post_execution(preflight, context)
+
+            envelope =
+              envelope
+              |> maybe_put(:artifacts, artifacts)
+              |> maybe_put(:continuation, continuation)
+
+            record_journal(:invoked, envelope, preflight, artifacts, continuation, context)
+            {:ok, envelope}
 
           {:error, reason} ->
-            {:ok,
-             %{
-               type: :user_level_plugin_invocation,
-               status: :blocked,
-               task_request_id: to_string(task_request.id),
-               preflight: preflight,
-               argv: argv,
-               command: command,
-               blocked_reason: {:external_command_failed, reason}
-             }}
+            envelope = %{
+              type: :user_level_plugin_invocation,
+              status: :blocked,
+              task_request_id: to_string(task_request.id),
+              preflight: preflight,
+              argv: argv,
+              command: command,
+              blocked_reason: {:external_command_failed, reason}
+            }
+
+            record_journal(:blocked, envelope, preflight, [], nil, context)
+            {:ok, envelope}
         end
+    end
+  end
+
+  defp post_execution(%PreflightResult{kind: :unique_match, command: command} = preflight, context)
+       when not is_nil(command) do
+    cwd = Map.get(context, :cwd) || File.cwd!()
+
+    artifacts =
+      if command.expected_artifacts == [] do
+        []
+      else
+        ArtifactWatcher.scan(command, cwd,
+          lstat?: Map.get(context, :artifact_lstat?, true)
+        )
+      end
+
+    continuation = Continuation.decide(preflight, artifacts)
+    {artifacts, continuation}
+  end
+
+  defp post_execution(_preflight, _context), do: {[], nil}
+
+  defp maybe_put(envelope, _key, []), do: envelope
+  defp maybe_put(envelope, _key, nil), do: envelope
+  defp maybe_put(envelope, key, value), do: Map.put(envelope, key, value)
+
+  defp record_journal(_phase, envelope, preflight, artifacts, continuation, context) do
+    case Map.get(context, :decision_journal) do
+      nil ->
+        :ok
+
+      target ->
+        task_id = Map.get(envelope, :task_request_id, "")
+        _ = DecisionJournal.log_preflight(target, task_id, preflight)
+        _ = DecisionJournal.log_dispatch(target, task_id, envelope)
+        _ = DecisionJournal.log_artifacts(target, task_id, artifacts)
+
+        if continuation, do: _ = DecisionJournal.log_continuation(target, task_id, continuation)
+        :ok
     end
   end
 
