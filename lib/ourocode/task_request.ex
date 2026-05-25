@@ -22,15 +22,17 @@ defmodule Ourocode.TaskRequest do
   ]
 
   @type routing_decision :: %{
-          required(:kind) => :runtime | :ouroboros_workflow | :mcp_flow,
-          required(:execution_route) => :runtime | :ouroboros_workflow | :mcp_flow,
+          required(:kind) => :runtime | :ouroboros_workflow | :mcp_flow | :user_level_plugin,
+          required(:execution_route) =>
+            :runtime | :ouroboros_workflow | :mcp_flow | :user_level_plugin,
           required(:runtime_source) =>
             :auto | :codex | :opencode | :claude_code | :ouroboros | :mcp,
           required(:transport) => :auto | :stdio | :streamable_http | :sse,
           required(:requires_command_syntax?) => false,
           required(:advanced_shortcut?) => boolean(),
           required(:reason) => atom(),
-          optional(:adapter_route) => atom()
+          optional(:adapter_route) => atom(),
+          optional(:plugin_id) => String.t()
         }
 
   @type t :: %__MODULE__{

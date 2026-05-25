@@ -3,7 +3,7 @@ defmodule Ourocode.Runtime.Dispatcher.RouteResolution do
 
   alias Ourocode.TaskRequest
 
-  @supported_routes [:runtime, :ouroboros_workflow, :mcp_flow]
+  @supported_routes [:runtime, :ouroboros_workflow, :mcp_flow, :user_level_plugin]
   @supported_runtime_sources [:auto, :codex, :opencode, :claude_code, :ouroboros, :mcp]
   @supported_transports [:auto, :stdio, :streamable_http, :sse]
   @supported_adapter_routes [:interview, :seed, :run, :evolve, :ralph, :workflow]
@@ -85,6 +85,15 @@ defmodule Ourocode.Runtime.Dispatcher.RouteResolution do
       :mcp,
       :mcp_flow
     ]
+  end
+
+  def adapter_keys(%{execution_route: :user_level_plugin, plugin_id: plugin_id})
+      when is_binary(plugin_id) and plugin_id != "" do
+    [{:user_level_plugin, plugin_id}, :user_level_plugin]
+  end
+
+  def adapter_keys(%{execution_route: :user_level_plugin}) do
+    [:user_level_plugin]
   end
 
   def adapter_keys(%{execution_route: route, runtime_source: runtime_source}) do
