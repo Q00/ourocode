@@ -1,0 +1,62 @@
+{
+  "plugins": [
+    {
+      "id": "superpowers",
+      "name": "superpowers",
+      "version": "0.4.2",
+      "install_scope": "user",
+      "trust_scope": ["filesystem:read", "filesystem:write"],
+      "manifest_digest": "sha256:abc123def456",
+      "commands": [
+        {
+          "name": "list",
+          "aliases": ["ls"],
+          "summary": "List installed Superpowers skills.",
+          "args": [],
+          "risk_class": "read_only",
+          "expected_artifacts": [],
+          "continuation_hint": "none"
+        },
+        {
+          "name": "inspect",
+          "aliases": [],
+          "summary": "Print the manifest of one Superpowers skill.",
+          "args": [
+            {"name": "skill", "required": true, "description": "Skill name."}
+          ],
+          "risk_class": "read_only",
+          "expected_artifacts": [],
+          "continuation_hint": "none"
+        },
+        {
+          "name": "test-driven-development",
+          "aliases": ["tdd"],
+          "summary": "Generate a TDD handoff and seed for the given goal.",
+          "args": [
+            {"name": "goal", "required": true, "description": "User goal."}
+          ],
+          "risk_class": "handoff_producing",
+          "expected_artifacts": [
+            ".omx/superpowers/runs/*/seed.md",
+            ".omx/superpowers/runs/*/handoff.md"
+          ],
+          "continuation_hint": "suggest_run"
+        },
+        {
+          "name": "systematic-debugging",
+          "aliases": ["debug"],
+          "summary": "Generate a debugging handoff and seed for the given goal.",
+          "args": [
+            {"name": "goal", "required": true, "description": "User goal."}
+          ],
+          "risk_class": "handoff_producing",
+          "expected_artifacts": [
+            ".omx/superpowers/runs/*/seed.md",
+            ".omx/superpowers/runs/*/handoff.md"
+          ],
+          "continuation_hint": "suggest_run"
+        }
+      ]
+    }
+  ]
+}
