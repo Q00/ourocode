@@ -7,7 +7,7 @@ defmodule Ourocode.CLI.StartupArgs do
   config/task parsers after startup-only flags are removed.
   """
 
-  @default_project_dir "/Users/jaegyu.lee/Project/ourocode"
+  @project_dir_env "OUROCODE_PROJECT_DIR"
   @project_dir_flags MapSet.new(["--project-dir", "--project", "-d"])
   @smoke_test_flags MapSet.new(["--smoke-test", "--smoke", "--verify"])
   @prompt_flags MapSet.new(["--prompt", "-p"])
@@ -87,10 +87,30 @@ defmodule Ourocode.CLI.StartupArgs do
   def parse(_args, _options), do: {:error, "CLI args must be a list"}
 
   @doc """
-  Returns the default implementation project directory for the launcher.
+  Returns the default project directory for the launcher.
+
+  Resolution order:
+
+    * the `OUROCODE_PROJECT_DIR` environment variable when it is set to a
+      non-empty value (expanded to an absolute path), otherwise
+    * the current working directory.
+
+  This keeps the documented `ourocode` (no `--project-dir`) quick-start working
+  on any machine instead of pointing at a build-time developer path.
   """
   @spec default_project_dir() :: String.t()
-  def default_project_dir, do: @default_project_dir
+  def default_project_dir do
+    case System.get_env(@project_dir_env) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> File.cwd!()
+          trimmed -> Path.expand(trimmed)
+        end
+
+      _ ->
+        File.cwd!()
+    end
+  end
 
   defp extract_startup_args(args, project_dir),
     do: extract_startup_args(args, project_dir, false, false, :text, [], [])

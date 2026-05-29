@@ -34,6 +34,19 @@ Then run:
 ourocode
 ```
 
+With no arguments, `ourocode` uses the current working directory as the project
+directory. Pass `--project-dir PATH` (or set `OUROCODE_PROJECT_DIR`) to point it
+elsewhere.
+
+### Requirements
+
+The bundled `ourocode` is an Erlang escript, so it needs the **Erlang/OTP
+runtime** (`escript`/`erl`) on your `PATH`. The installer installs it
+best-effort (Homebrew on macOS, `apt`/`dnf` on Linux); if that is not possible
+it stops with manual instructions. Install it yourself with `brew install
+erlang`, `sudo apt-get install erlang`, or `sudo dnf install erlang`. Set
+`OUROCODE_SKIP_ERLANG=1` to bypass the check.
+
 Optional model backends:
 
 - Claude CLI
@@ -96,7 +109,7 @@ curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/inst
 ourocode
 ```
 
-`install.sh` downloads the matching GitHub Release tarball, installs `ourocode` into `~/.local/ourocode/<version>`, and writes a launcher at `~/.local/bin/ourocode`. The launcher sets `OUROCODE_TTY` so the installed escript can find the bundled native tty helper.
+`install.sh` downloads the matching GitHub Release tarball, installs `ourocode` into `~/.local/ourocode/<version>`, and writes a launcher at `~/.local/bin/ourocode`. The launcher sets `OUROCODE_TTY` so the installed escript can find the bundled native tty helper. It also ensures the Erlang/OTP runtime is available (see [Requirements](#requirements)), since the escript cannot run without it.
 
 When run from a source checkout, the same installer uses bundled release binaries if present, or builds from source when needed. Set `OUROCODE_BUILD_FROM_SOURCE=1` to force a local build.
 

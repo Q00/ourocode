@@ -75,6 +75,54 @@ download_release() {
   fi
 }
 
+ensure_erlang_runtime() {
+  # The bundled `ourocode` is an Erlang escript and needs the Erlang/OTP runtime
+  # (`escript`/`erl`) on PATH to run. Release tarballs do not bundle the runtime,
+  # so a fresh machine ends up with a working launcher that cannot start. Make
+  # the runtime present here (best effort, like the Ouroboros step) so the
+  # documented `ourocode` quick start works after install.
+  if command -v escript >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ "${OUROCODE_SKIP_ERLANG:-0}" = "1" ]; then
+    echo "==> skipping Erlang runtime check (OUROCODE_SKIP_ERLANG=1)" >&2
+    return 0
+  fi
+
+  echo "==> Erlang runtime (escript) not found; ourocode needs it to run"
+
+  local os
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+
+  if command -v brew >/dev/null 2>&1; then
+    echo "    installing Erlang via Homebrew (best effort)"
+    if brew install erlang; then
+      brew link --overwrite erlang >/dev/null 2>&1 || true
+    fi
+  elif [ "$os" = "linux" ] && command -v apt-get >/dev/null 2>&1; then
+    echo "    installing Erlang via apt-get (best effort; may require sudo)"
+    sudo apt-get update -y >/dev/null 2>&1 || true
+    sudo apt-get install -y erlang >/dev/null 2>&1 || true
+  elif [ "$os" = "linux" ] && command -v dnf >/dev/null 2>&1; then
+    echo "    installing Erlang via dnf (best effort; may require sudo)"
+    sudo dnf install -y erlang >/dev/null 2>&1 || true
+  fi
+
+  if ! command -v escript >/dev/null 2>&1; then
+    echo "" >&2
+    echo "error: Erlang/OTP runtime not found and could not be installed automatically." >&2
+    echo "       ourocode is an Erlang escript and needs 'escript'/'erl' on PATH." >&2
+    echo "       Install Erlang, then re-run this installer:" >&2
+    echo "         macOS:         brew install erlang" >&2
+    echo "         Debian/Ubuntu: sudo apt-get install erlang" >&2
+    echo "         Fedora:        sudo dnf install erlang" >&2
+    echo "       Other platforms: https://www.erlang.org/downloads" >&2
+    echo "       (set OUROCODE_SKIP_ERLANG=1 to bypass this check)" >&2
+    exit 1
+  fi
+}
+
 echo "==> ourocode install"
 
 need_build=0
@@ -130,6 +178,11 @@ export OUROCODE_TTY="$INSTALL_DIR/bin/ourocode_tty"
 exec "$INSTALL_DIR/ourocode" "\$@"
 EOF
 chmod +x "$BIN_DIR/ourocode"
+
+# The launcher above runs an Erlang escript; make sure the runtime exists before
+# we try to invoke it (e.g. the `--detect` call below) or hand control back to
+# the user.
+ensure_erlang_runtime
 
 # Ourocode surfaces the Ouroboros capability graph. This step is best-effort
 # and can be skipped for lean installs or CI with OUROCODE_SKIP_OUROBOROS=1.
