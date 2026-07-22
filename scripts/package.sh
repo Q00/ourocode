@@ -51,7 +51,13 @@ chmod +x "$STAGE/ourocode" "$STAGE/bin/ourocode_tty" "$STAGE/install.sh"
   tar -czf "$TARBALL" "$NAME"
 )
 
-shasum -a 256 "$TARBALL" >"$TARBALL.sha256"
+# Record the checksum against a bare filename, not "$TARBALL"'s absolute path:
+# the .sha256 ships next to the tarball, so `shasum -c` / `sha256sum -c` has to
+# resolve it relative to wherever the user downloaded the pair.
+(
+  cd "$ROOT/dist"
+  shasum -a 256 "$NAME.tar.gz" >"$NAME.tar.gz.sha256"
+)
 
 echo "==> release ready"
 echo "  $TARBALL"

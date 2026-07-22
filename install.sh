@@ -2,11 +2,15 @@
 # Install ourocode from either a release tarball directory or a source checkout.
 set -euo pipefail
 
-VERSION="${OUROCODE_VERSION:-0.1.13}"
+# Last-resort fallback, used only when there is no OUROCODE_VERSION override, no
+# source checkout to read mix.exs from, and the GitHub latest-release lookup
+# fails. Keep this on the newest *stable* tag: pre-releases (0.1.15-beta-N) are
+# published as GitHub pre-releases and are excluded from /releases/latest on
+# purpose, so pinning one here would push beta bits to users who hit this path.
+OUROCODE_DEFAULT_VERSION="0.1.14"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
-INSTALL_DIR="${OUROCODE_INSTALL_DIR:-$INSTALL_ROOT/$VERSION}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
-REPO="${OUROCODE_REPO:-Q00/ourocode}"
+REPO="${OUROCODE_REPO:-Ouro-labs/ourocode}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DOWNLOAD_TMP=""
@@ -65,7 +69,10 @@ download_release() {
   archive="$DOWNLOAD_TMP/${name}.tar.gz"
 
   echo "==> downloading release $name"
-  curl -fL "$url" -o "$archive"
+  if ! curl -fL "$url" -o "$archive"; then
+    missing_release_asset "$platform" "$name" "$url"
+    return 1
+  fi
   tar -xzf "$archive" -C "$DOWNLOAD_TMP"
 
   ROOT="$DOWNLOAD_TMP/$name"
@@ -73,6 +80,88 @@ download_release() {
     echo "error: release archive did not contain expected ourocode binaries." >&2
     exit 1
   fi
+}
+
+resolve_version() {
+  # Resolve the ourocode version without drift: 1) explicit override,
+  # 2) unpacked release directory name, 3) source checkout mix.exs,
+  # 4) latest release tag, 5) pinned fallback.
+  if [ -n "${OUROCODE_VERSION:-}" ]; then
+    printf '%s' "$OUROCODE_VERSION"
+    return 0
+  fi
+
+  # Unpacked release tarball: ourocode-v<version>-<os>-<arch> names the exact
+  # build sitting next to this script, so it wins over any remote lookup —
+  # otherwise a release install lands in a directory named for whatever the
+  # fallback happens to be. Mirrors Get-VersionFromZipName in install.ps1.
+  local dir_name
+  dir_name="$(basename "$ROOT")"
+  if [[ "$dir_name" =~ ^ourocode-v(.+)-(linux|darwin)-(x86_64|arm64)$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  if [ -f "$ROOT/mix.exs" ]; then
+    local v
+    v="$(grep -E 'version: "' "$ROOT/mix.exs" | head -1 | sed -E 's/.*version: "([^"]+)".*/\1/' || true)"
+    if [ -n "$v" ]; then
+      printf '%s' "$v"
+      return 0
+    fi
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    local tag
+    tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/' || true)"
+    if [ -n "$tag" ]; then
+      printf '%s' "$tag"
+      return 0
+    fi
+    echo "warning: could not resolve latest release tag from GitHub; using pinned v${OUROCODE_DEFAULT_VERSION}" >&2
+  fi
+
+  printf '%s' "$OUROCODE_DEFAULT_VERSION"
+}
+
+missing_release_asset() {
+  local platform="$1" name="$2" url="$3"
+  {
+    echo ""
+    echo "error: no prebuilt ourocode release asset for your platform ($platform)."
+    echo "       looked for: ${name}.tar.gz"
+    echo "       url:        $url"
+    echo ""
+    echo "  Try one of:"
+    echo "   - Point at the repo that publishes releases:"
+    echo "       OUROCODE_REPO=<owner>/<repo> ..."
+    echo "   - Point at a direct tarball URL:"
+    echo "       OUROCODE_RELEASE_URL=<url-to-.tar.gz> ..."
+    echo "   - Pin a known-good version:"
+    echo "       OUROCODE_VERSION=<x.y.z> ..."
+    echo "   - Build from source instead (needs Elixir + Rust):"
+    echo "       OUROCODE_BUILD_FROM_SOURCE=1 ..."
+    echo ""
+  } >&2
+}
+
+fetch_source_checkout() {
+  # Fetch a source tree so an OUROCODE_BUILD_FROM_SOURCE=1 pipe install can build.
+  if ! command -v git >/dev/null 2>&1; then
+    echo "error: OUROCODE_BUILD_FROM_SOURCE=1 needs git to fetch source for a pipe install." >&2
+    exit 1
+  fi
+
+  DOWNLOAD_TMP="${DOWNLOAD_TMP:-$(mktemp -d)}"
+  local src="$DOWNLOAD_TMP/src"
+
+  echo "==> fetching source (v$VERSION) to build from source"
+  if ! git clone --depth 1 --branch "v$VERSION" "https://github.com/${REPO}.git" "$src" 2>/dev/null; then
+    echo "    tag v$VERSION not found; cloning default branch" >&2
+    git clone --depth 1 "https://github.com/${REPO}.git" "$src"
+  fi
+
+  ROOT="$src"
 }
 
 ensure_erlang_runtime() {
@@ -123,6 +212,10 @@ ensure_erlang_runtime() {
   fi
 }
 
+VERSION="$(resolve_version)"
+INSTALL_DIR="${OUROCODE_INSTALL_DIR:-$INSTALL_ROOT/$VERSION}"
+echo "==> ourocode version: v$VERSION (repo: $REPO)"
+
 echo "==> ourocode install"
 
 need_build=0
@@ -135,9 +228,16 @@ if [ "${OUROCODE_BUILD_FROM_SOURCE:-0}" = "1" ]; then
 fi
 
 if [ "$need_build" = "1" ]; then
-  if [ "${OUROCODE_BUILD_FROM_SOURCE:-0}" != "1" ] && [ ! -f "$ROOT/mix.exs" ]; then
-    download_release
-    need_build=0
+  if [ "${OUROCODE_BUILD_FROM_SOURCE:-0}" != "1" ]; then
+    if [ ! -f "$ROOT/mix.exs" ]; then
+      if download_release; then
+        need_build=0
+      else
+        exit 1
+      fi
+    fi
+  elif [ ! -f "$ROOT/mix.exs" ]; then
+    fetch_source_checkout
   fi
 fi
 
