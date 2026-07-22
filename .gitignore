@@ -14,3 +14,7 @@
 
 # Stray seed artifacts
 /seed_*.yaml
+
+.om*/
+*.dump
+docs/rubrics/

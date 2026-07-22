@@ -4,15 +4,9 @@ defmodule Ourocode.IPC.HelperPortTest do
   alias Ourocode.IPC.HelperPort
 
   test "opens helper port, writes the initial frame, and exposes response lines" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
+    {command, args} = Ourocode.Test.PortPrograms.echo_line_command("echo:")
 
-    script = """
-    IFS= read -r line
-    printf '%s\\n' "echo:$line"
-    """
-
-    assert {:ok, port} = HelperPort.open_and_write(command, ["-c", script], "hello\n")
+    assert {:ok, port} = HelperPort.open_and_write(command, args, "hello\n")
     assert_receive {^port, {:data, {:eol, "echo:hello"}}}, 1_000
     assert HelperPort.close(port) == :ok
   end
@@ -29,10 +23,9 @@ defmodule Ourocode.IPC.HelperPortTest do
   end
 
   test "close is idempotent for already closed ports" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
+    {command, args} = Ourocode.Test.PortPrograms.read_once_and_exit_command()
 
-    assert {:ok, port} = HelperPort.open_and_write(command, ["-c", "exit 0"], "hello\n")
+    assert {:ok, port} = HelperPort.open_and_write(command, args, "hello\n")
     assert HelperPort.close(port) == :ok
     assert HelperPort.close(port) == :ok
   end

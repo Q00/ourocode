@@ -129,5 +129,5 @@ defmodule Ourocode.Terminal.TuiAnswerSubmission do
     |> Kernel.in(["cancel", "decline", "/cancel"])
   end
 
-  defp log(output, text), do: IO.puts(output, text)
+  defp log(output, text), do: IO.puts(output, String.replace_invalid(text, ""))
 end

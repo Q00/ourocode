@@ -9,6 +9,9 @@ defmodule Ourocode.Runtime.McpDaemonTest do
   use ExUnit.Case, async: false
 
   alias Ourocode.Runtime.McpDaemon
+  alias Ourocode.Test.PortPrograms
+
+  import Ourocode.Test.OsProcessAssertions
 
   setup do
     saved = {System.get_env("OUROCODE_MCP_AUTOSTART"), System.get_env("OUROCODE_MCP_URL")}
@@ -127,27 +130,23 @@ defmodule Ourocode.Runtime.McpDaemonTest do
   end
 
   test "stop/1 reaps the per-instance OS process (no orphan on tab close)" do
+    {command, args} = PortPrograms.long_running_command()
+
     erl_port =
-      Port.open({:spawn_executable, "/bin/sh"}, [
+      Port.open({:spawn_executable, command}, [
         :binary,
         :exit_status,
         :hide,
-        args: ["-c", "exec sleep 30"]
+        args: args
       ])
 
     {:os_pid, os_pid} = Port.info(erl_port, :os_pid)
-    assert {_out, 0} = System.cmd("kill", ["-0", Integer.to_string(os_pid)])
+    assert_os_process_alive(os_pid)
 
     assert :ok ==
              McpDaemon.stop(%{mode: :spawned, port: erl_port, os_pid: os_pid, url: "u"})
 
-    # The signalled server is gone — `kill -0` now fails (no such process).
-    Process.sleep(150)
-
-    assert {_err, code} =
-             System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true)
-
-    assert code != 0
+    refute_os_process_alive(os_pid)
   end
 
   test "describe/1 renders every mode" do

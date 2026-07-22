@@ -1,0 +1,114 @@
+name: Windows package smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-package.yml"
+      - "install.ps1"
+      - "uninstall.ps1"
+      - "scripts/package-windows.ps1"
+      - "lib/ourocode/terminal/tty_driver.ex"
+      - "rust/ourocode_ipc/**"
+      - "mix.exs"
+      - "mix.lock"
+  workflow_dispatch:
+
+jobs:
+  package-install-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Fetch Mix dependencies
+        shell: pwsh
+        run: mix deps.get
+
+      - name: Build Windows release zip
+        shell: pwsh
+        run: |
+          .\scripts\package-windows.ps1 -Version "0.0.0-ci" -OutputDir ".\dist"
+          if (-not (Test-Path ".\dist\ourocode-v0.0.0-ci-windows-x64.zip")) {
+            throw "Windows release zip was not created"
+          }
+          if (-not (Test-Path ".\dist\ourocode-v0.0.0-ci-windows-x64.zip.sha256")) {
+            throw "Windows release checksum was not created"
+          }
+          $expanded = Join-Path $env:RUNNER_TEMP "Ourocode Expanded"
+          Expand-Archive -LiteralPath ".\dist\ourocode-v0.0.0-ci-windows-x64.zip" -DestinationPath $expanded -Force
+          if (-not (Get-ChildItem -LiteralPath $expanded -Recurse -Filter "uninstall.ps1" | Select-Object -First 1)) {
+            throw "Windows release zip did not include uninstall.ps1"
+          }
+
+      - name: Install from zip with checksum
+        shell: pwsh
+        run: |
+          $zip = Resolve-Path ".\dist\ourocode-v0.0.0-ci-windows-x64.zip"
+          $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+          $root = Join-Path $env:RUNNER_TEMP "Ourocode Test"
+          $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          try {
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -LocalZip $zip -Sha256 $sha -InstallRoot $root
+            $expectedBin = Join-Path $root "bin"
+            $updatedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            if ($updatedUserPath -notlike "*$expectedBin*") {
+              throw "installer did not add the stable shim directory to the user PATH"
+            }
+            # Keep the current process PATH (setup-beam put escript.exe there) so the
+            # ourocode.cmd launcher can resolve escript; a real user has Erlang on a
+            # persistent PATH, but on CI it only lives in this job's process PATH.
+            $env:Path = "$updatedUserPath;$([Environment]::GetEnvironmentVariable("Path", "Machine"));$env:Path"
+            powershell -NoProfile -Command "ourocode --version"
+            cmd.exe /c "ourocode --version"
+          }
+          finally {
+            [Environment]::SetEnvironmentVariable("Path", $originalUserPath, "User")
+          }
+
+      - name: Reject checksum mismatch
+        shell: pwsh
+        run: |
+          $zip = Resolve-Path ".\dist\ourocode-v0.0.0-ci-windows-x64.zip"
+          $root = Join-Path $env:RUNNER_TEMP "Ourocode Bad Hash"
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -LocalZip $zip -Sha256 0000 -InstallRoot $root -NoPathUpdate
+          $code = $LASTEXITCODE
+          if ($code -eq 0) {
+            throw "checksum mismatch unexpectedly succeeded"
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: Uninstall and reinstall loop
+        shell: pwsh
+        run: |
+          $zip = Resolve-Path ".\dist\ourocode-v0.0.0-ci-windows-x64.zip"
+          $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+          $root = Join-Path $env:RUNNER_TEMP "Ourocode Reinstall"
+          $originalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          try {
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -LocalZip $zip -Sha256 $sha -InstallRoot $root
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1 -InstallRoot $root -AllVersions
+            if (Test-Path -LiteralPath $root) {
+              throw "uninstall left install root behind"
+            }
+            $updatedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            if ($updatedUserPath -like "*$root*") {
+              throw "uninstall left the install root on user PATH"
+            }
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -LocalZip $zip -Sha256 $sha -InstallRoot $root
+            $cmd = Join-Path $root "bin\ourocode.cmd"
+            if (-not (Test-Path -LiteralPath $cmd)) {
+              throw "reinstall did not recreate the launcher"
+            }
+          }
+          finally {
+            [Environment]::SetEnvironmentVariable("Path", $originalUserPath, "User")
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          }

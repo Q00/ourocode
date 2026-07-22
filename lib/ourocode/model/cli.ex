@@ -37,6 +37,21 @@ defmodule Ourocode.Model.Cli do
     end
   end
 
+  @doc false
+  @spec runner_command(
+          String.t(),
+          [String.t()],
+          {:unix | :win32, atom()},
+          (String.t() -> String.t() | nil)
+        ) :: {String.t(), [String.t()]}
+  def runner_command(path, args, os_type \\ :os.type(), which \\ &System.find_executable/1)
+
+  def runner_command(path, args, {:win32, _name}, _which), do: {path, args}
+
+  def runner_command(path, args, _os_type, which) when is_function(which, 1) do
+    {which.("sh") || "/bin/sh", ["-c", ~s(exec "$0" "$@" </dev/null), path | args]}
+  end
+
   @doc """
   Runs the CLI for one prompt, invoking `on_chunk` for each stdout chunk.
 
@@ -47,6 +62,7 @@ defmodule Ourocode.Model.Cli do
           {:ok, String.t()} | {:error, term()}
   def stream(id, prompt, opts, on_chunk) when is_binary(prompt) and is_function(on_chunk, 1) do
     which = Keyword.get(opts, :which, &System.find_executable/1)
+    run = Keyword.get(opts, :run, &run/4)
     bin = Map.fetch!(@bins, id)
 
     case which.(bin) do
@@ -55,11 +71,11 @@ defmodule Ourocode.Model.Cli do
 
       path ->
         delay = Keyword.get(opts, :retry_base_delay_ms, @retry_base_delay_ms)
-        run_with_retry(id, path, args(id, prompt, nil), on_chunk, delay, 1)
+        run_with_retry(id, path, args(id, prompt, nil), on_chunk, delay, 1, run)
     end
   end
 
-  defp run_with_retry(id, path, args, on_chunk, delay, attempt) do
+  defp run_with_retry(id, path, args, on_chunk, delay, attempt, run) do
     emitted = :counters.new(1, [])
 
     counted_chunk = fn chunk ->
@@ -67,11 +83,11 @@ defmodule Ourocode.Model.Cli do
       on_chunk.(chunk)
     end
 
-    case run(id, path, args, counted_chunk) do
+    case run.(id, path, args, counted_chunk) do
       {:error, {:exit, _status}} = error ->
         if :counters.get(emitted, 1) == 0 and attempt < @max_attempts do
           Process.sleep(delay * Integer.pow(2, attempt - 1))
-          run_with_retry(id, path, args, on_chunk, delay, attempt + 1)
+          run_with_retry(id, path, args, on_chunk, delay, attempt + 1, run)
         else
           error
         end
@@ -82,18 +98,15 @@ defmodule Ourocode.Model.Cli do
   end
 
   defp run(id, path, args, on_chunk) do
-    # Spawn through `sh -c 'exec "$0" "$@" </dev/null'` so the CLI's stdin is
-    # /dev/null, not the BEAM port pipe. Args are passed positionally, so the
-    # prompt needs no shell escaping.
-    shell = System.find_executable("sh") || "/bin/sh"
+    {command, command_args} = runner_command(path, args)
 
     port =
-      Port.open({:spawn_executable, shell}, [
+      Port.open({:spawn_executable, command}, [
         :binary,
         :exit_status,
         :hide,
         :stderr_to_stdout,
-        args: ["-c", ~s(exec "$0" "$@" </dev/null), path | args]
+        args: command_args
       ])
 
     collect(id, port, [], "", on_chunk)
