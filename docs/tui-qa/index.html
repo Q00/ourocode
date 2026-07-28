@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ourocode TUI QA</title>
+    <meta
+      name="description"
+      content="Browser-based QA harness for replaying Ourocode terminal frames and checking TUI states."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="qa-shell">
+      <section class="control-panel" aria-labelledby="qa-title">
+        <div class="intro">
+          <p class="label">TUI QA</p>
+          <h1 id="qa-title">Ourocode frame review</h1>
+          <p>
+            Replay generated terminal states, inspect wrapping, and collect visible checks before recording or manual QA.
+          </p>
+        </div>
+
+        <div class="toolbar" aria-label="Playback controls">
+          <button type="button" id="play">Play</button>
+          <button type="button" id="prev">Prev</button>
+          <button type="button" id="next">Next</button>
+          <button type="button" id="copy">Copy frame</button>
+        </div>
+
+        <div class="viewport-controls" aria-label="Viewport width">
+          <button type="button" data-width="80">80 cols</button>
+          <button type="button" data-width="100" aria-current="true">100 cols</button>
+          <button type="button" data-width="120">120 cols</button>
+        </div>
+
+        <div class="scenario-list" id="scenarios" aria-label="Scenarios"></div>
+      </section>
+
+      <section class="preview-panel" aria-labelledby="frame-title">
+        <div class="terminal-card">
+          <div class="terminal-bar">
+            <span class="dot danger"></span>
+            <span class="dot warn"></span>
+            <span class="dot ok"></span>
+            <strong id="frame-title">Loading</strong>
+            <span id="frame-meta"></span>
+          </div>
+          <pre id="terminal" tabindex="0" aria-label="Rendered terminal frame"></pre>
+        </div>
+
+        <aside class="evidence" aria-label="Frame evidence">
+          <div>
+            <span class="label">Status</span>
+            <strong id="qa-status">Loading frames</strong>
+          </div>
+          <div id="checks" class="checks"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
