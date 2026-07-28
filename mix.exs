@@ -4,7 +4,7 @@ defmodule Ourocode.MixProject do
   def project do
     [
       app: :ourocode,
-      version: "0.1.14",
+      version: "0.1.15-beta-1",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Ourocode.CLI],
