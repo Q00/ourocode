@@ -1,0 +1,189 @@
+name: release
+
+# Build self-contained ourocode artifacts for every supported platform and attach
+# them to the GitHub Release, so the documented `curl ... install.sh | bash`
+# path works on Linux (x86_64/arm64) and macOS, and the PowerShell installer has
+# a published Windows zip to fetch — not only the host a maintainer happens to
+# package on. `workflow_dispatch` runs the same builds as a dry run and uploads
+# workflow artifacts instead of release assets.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (tag or branch) to build for a dry run"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    # linux-arm64 runners may be unavailable to some orgs; keep it non-fatal so
+    # the required linux-x86_64 and darwin-arm64 artifacts still publish.
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x86_64
+            optional: false
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+            optional: true
+          - runner: macos-14
+            platform: darwin-arm64
+            optional: false
+    steps:
+      - name: Resolve build ref
+        id: ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            ref="${{ github.event.release.tag_name }}"
+          else
+            ref="${{ github.event.inputs.ref }}"
+            [ -n "$ref" ] || ref="${{ github.ref_name }}"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "building ref: $ref"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Set up Erlang/Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.17"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Version guard
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          tag="${tag#v}"
+          mv="$(grep -E 'version: "' mix.exs | head -1 | sed -E 's/.*version: "([^"]+)".*/\1/')"
+          if [ "$tag" != "$mv" ]; then
+            echo "::error::release tag ($tag) does not match mix.exs version ($mv)"
+            exit 1
+          fi
+          echo "version guard ok: tag=$tag mix.exs=$mv"
+
+      - name: Build release tarball
+        shell: bash
+        run: ./scripts/package.sh
+
+      - name: List artifacts
+        shell: bash
+        run: ls -la dist
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+
+      - name: Upload dry-run artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ourocode-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  # Windows ships a zip built by scripts/package-windows.ps1 (native tty helper +
+  # ourocode.exe launcher + escript), not the tar.gz the Unix job produces, so it
+  # runs as its own job rather than another matrix leg.
+  build-windows:
+    name: build windows-x64
+    runs-on: windows-latest
+    steps:
+      - name: Resolve build ref
+        id: ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            ref="${{ github.event.release.tag_name }}"
+          else
+            ref="${{ github.event.inputs.ref }}"
+            [ -n "$ref" ] || ref="${{ github.ref_name }}"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "building ref: $ref"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Set up Erlang/Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.17"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Version guard
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          tag="${tag#v}"
+          mv="$(grep -E 'version: "' mix.exs | head -1 | sed -E 's/.*version: "([^"]+)".*/\1/')"
+          if [ "$tag" != "$mv" ]; then
+            echo "::error::release tag ($tag) does not match mix.exs version ($mv)"
+            exit 1
+          fi
+          echo "version guard ok: tag=$tag mix.exs=$mv"
+
+      - name: Fetch Mix dependencies
+        shell: pwsh
+        run: mix deps.get
+
+      # No -Version: the script reads mix.exs, which the guard above already
+      # pins to the release tag.
+      - name: Build Windows release zip
+        shell: pwsh
+        run: .\scripts\package-windows.ps1 -OutputDir dist
+
+      - name: List artifacts
+        shell: pwsh
+        run: Get-ChildItem dist
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.zip.sha256
+
+      - name: Upload dry-run artifacts
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ourocode-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
