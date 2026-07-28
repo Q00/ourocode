@@ -1,10 +1,8 @@
 defmodule Ourocode.Terminal.TuiLogin do
   @moduledoc false
 
-  alias Ourocode.Provider.Anthropic
-  alias Ourocode.Provider.Codex
-  alias Ourocode.Terminal.TuiEnvironment
-  alias Ourocode.Terminal.TuiState
+  alias Ourocode.Provider.{Anthropic, Codex}
+  alias Ourocode.Terminal.{KeyReader, TuiEnvironment, TuiState}
 
   @max_login_polls 80
 
@@ -185,6 +183,19 @@ defmodule Ourocode.Terminal.TuiLogin do
     |> String.upcase()
   end
 
+  @doc false
+  def login_input_cancel_action(data, pending \\ <<>>)
+
+  def login_input_cancel_action(<<>>, <<27>>), do: {:cancel, <<>>}
+
+  def login_input_cancel_action(data, pending) when is_binary(data) and is_binary(pending) do
+    {events, rest} = KeyReader.decode(pending <> data)
+
+    if Enum.any?(events, &match?(%{type: :key, key: key} when key in [:ctrl_c, :escape], &1)),
+      do: {:cancel, rest},
+      else: {:continue, rest}
+  end
+
   # Accept either a bare code or the full redirect URL the browser landed on.
   defp strip_url_to_code(text) do
     case URI.parse(text) do
@@ -205,24 +216,29 @@ defmodule Ourocode.Terminal.TuiLogin do
     end
   end
 
-  defp wait_or_cancel(state, deadline) do
+  defp wait_or_cancel(state, deadline, pending \\ <<>>) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     if remaining <= 0 do
       :timeout
     else
       port = TuiState.port(state)
+      wait_ms = if pending == <<27>>, do: min(remaining, 25), else: remaining
 
       receive do
         {^port, {:data, data}} ->
-          if String.contains?(data, <<3>>) or String.contains?(data, <<27>>),
-            do: :cancel,
-            else: wait_or_cancel(state, deadline)
+          case login_input_cancel_action(data, pending) do
+            {:cancel, _rest} -> :cancel
+            {:continue, rest} -> wait_or_cancel(state, deadline, rest)
+          end
 
         {^port, {:exit_status, _}} ->
           :cancel
       after
-        remaining -> :timeout
+        wait_ms ->
+          if match?({:cancel, _rest}, login_input_cancel_action(<<>>, pending)),
+            do: :cancel,
+            else: :timeout
       end
     end
   end

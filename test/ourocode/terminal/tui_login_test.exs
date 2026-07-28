@@ -24,6 +24,53 @@ defmodule Ourocode.Terminal.TuiLoginTest do
     assert TuiLogin.codex_entry_code("abcd efghi") == "ABCDEFGHI"
   end
 
+  describe "login_input_cancel_action/2" do
+    test "continues for SGR mouse reports emitted during device login" do
+      # Given: all-motion mouse tracking sends an ESC-prefixed SGR report.
+      mouse_report = "\e[<35;7;8M"
+
+      # When: login polling classifies the terminal chunk.
+      action = TuiLogin.login_input_cancel_action(mouse_report)
+
+      # Then: mouse traffic is not treated as a user cancel.
+      assert action == {:continue, <<>>}
+    end
+
+    test "continues for CSI arrow input emitted during device login" do
+      # Given: a decoded arrow-key CSI sequence arrives while the login card is visible.
+      arrow_sequence = "\e[A"
+
+      # When: login polling classifies the terminal chunk.
+      action = TuiLogin.login_input_cancel_action(arrow_sequence)
+
+      # Then: navigation input is ignored for cancel semantics.
+      assert action == {:continue, <<>>}
+    end
+
+    test "continues and buffers an incomplete escape sequence" do
+      # Given: raw mode can deliver the leading ESC byte before the rest of a sequence.
+      incomplete_escape = <<27>>
+
+      # When: login polling classifies the partial chunk.
+      action = TuiLogin.login_input_cancel_action(incomplete_escape)
+
+      # Then: the partial escape is not eagerly treated as cancel.
+      assert action == {:continue, <<27>>}
+    end
+
+    test "cancels for explicit ctrl-c and standalone escape" do
+      # Given: the user sends explicit cancel keys.
+      ctrl_c = <<3>>
+      standalone_escape_pending = <<27>>
+
+      # When / Then: both explicit cancel forms remain supported.
+      assert TuiLogin.login_input_cancel_action(ctrl_c) == {:cancel, <<>>}
+
+      assert TuiLogin.login_input_cancel_action(<<>>, standalone_escape_pending) ==
+               {:cancel, <<>>}
+    end
+  end
+
   test "claude login arms a pending paste step with the Claude Code authorize URL" do
     with_tmp_home(fn ->
       state = TuiState.start_link()
