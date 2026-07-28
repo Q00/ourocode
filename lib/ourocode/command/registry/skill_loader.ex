@@ -33,14 +33,20 @@ defmodule Ourocode.Command.Registry.SkillLoader do
   end
 
   @spec parse_frontmatter(String.t()) :: map()
-  def parse_frontmatter("---\n" <> rest) do
+  def parse_frontmatter(contents) when is_binary(contents) do
+    contents
+    |> String.replace("\r\n", "\n")
+    |> parse_normalized_frontmatter()
+  end
+
+  defp parse_normalized_frontmatter("---\n" <> rest) do
     case String.split(rest, "\n---", parts: 2) do
       [frontmatter, _body] -> parse_frontmatter_lines(frontmatter)
       [_without_closing_marker] -> %{}
     end
   end
 
-  def parse_frontmatter(_contents), do: %{}
+  defp parse_normalized_frontmatter(_contents), do: %{}
 
   defp normalize!(%{root: root, dir: skill_dir, file: skill_file}, source) do
     metadata = skill_file |> File.read!() |> parse_frontmatter()

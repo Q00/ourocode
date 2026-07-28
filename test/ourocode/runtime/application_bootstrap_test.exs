@@ -2,6 +2,7 @@ defmodule Ourocode.Runtime.ApplicationBootstrapTest do
   use ExUnit.Case, async: true
 
   alias Ourocode.Runtime.ApplicationBootstrap
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
 
   test "session_id preserves provided runtime session ids and generates terminal ids" do
     assert ApplicationBootstrap.session_id(%{runtime_session_id: "terminal-test"}) ==
@@ -20,8 +21,8 @@ defmodule Ourocode.Runtime.ApplicationBootstrapTest do
                project_dir
              )
 
-    assert prepared.project_dir == Path.expand(project_dir)
-    assert prepared.journal_path == Path.expand(relative_journal)
+    assert_same_path(prepared.project_dir, Path.expand(project_dir))
+    assert_same_path(prepared.journal_path, Path.expand(relative_journal))
     assert File.dir?(Path.dirname(prepared.journal_path))
 
     File.rm_rf!(project_dir)
@@ -35,8 +36,10 @@ defmodule Ourocode.Runtime.ApplicationBootstrapTest do
             %{
               status: :unhealthy,
               healthy?: false,
-              reason: {:missing_project_dir, ^missing_dir}
+              reason: {:missing_project_dir, actual_missing_dir}
             }} = ApplicationBootstrap.prepare(%{}, missing_dir)
+
+    assert_same_path(actual_missing_dir, missing_dir)
   end
 
   test "default_journal_path uses the runtime session id" do

@@ -76,7 +76,7 @@ defmodule Ourocode.Plugin.PathPolicyTest do
              )
   end
 
-  test "rejects symlink escape through an allowed root" do
+  test "rejects link escape through an allowed root" do
     base_dir = tmp_dir!("symlink-base")
     allowed_root = Path.join(base_dir, "plugins")
     outside_root = tmp_dir!("symlink-outside")
@@ -84,15 +84,19 @@ defmodule Ourocode.Plugin.PathPolicyTest do
 
     link_path = Path.join(allowed_root, "linked-outside")
 
-    case File.ln_s(outside_root, link_path) do
+    case create_directory_link(outside_root, link_path) do
       :ok ->
-        assert {:error, :plugin_path_not_allowed} =
-                 PathPolicy.validate(Path.join(link_path, "community-plugin"),
-                   allowed_roots: [allowed_root]
-                 )
+        try do
+          assert {:error, :plugin_path_not_allowed} =
+                   PathPolicy.validate(Path.join(link_path, "community-plugin"),
+                     allowed_roots: [allowed_root]
+                   )
+        after
+          remove_directory_link(link_path)
+        end
 
       {:error, reason} ->
-        flunk("failed to create symlink for path policy test: #{inspect(reason)}")
+        flunk("failed to create link for path policy test: #{inspect(reason)}")
     end
   end
 
@@ -114,4 +118,40 @@ defmodule Ourocode.Plugin.PathPolicyTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ourocode, key)
   defp restore_env(key, value), do: Application.put_env(:ourocode, key, value)
+
+  defp create_directory_link(target_path, link_path) do
+    case File.ln_s(target_path, link_path) do
+      :ok -> :ok
+      {:error, :eperm} -> create_windows_junction(target_path, link_path)
+      {:error, reason} -> {:error, {:symlink, reason}}
+    end
+  end
+
+  defp create_windows_junction(target_path, link_path) do
+    if windows?() do
+      case System.cmd(
+             "cmd.exe",
+             ["/d", "/c", "mklink", "/J", windows_path(link_path), windows_path(target_path)],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, {:junction, status, String.trim(output)}}
+      end
+    else
+      {:error, :eperm}
+    end
+  end
+
+  defp remove_directory_link(link_path) do
+    if windows?() do
+      System.cmd("cmd.exe", ["/d", "/c", "rmdir", windows_path(link_path)],
+        stderr_to_stdout: true
+      )
+    else
+      File.rm(link_path)
+    end
+  end
+
+  defp windows_path(path), do: path |> Path.expand() |> String.replace("/", "\\")
+  defp windows?, do: match?({:win32, _}, :os.type())
 end

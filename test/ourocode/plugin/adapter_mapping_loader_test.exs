@@ -1,6 +1,8 @@
 defmodule Ourocode.Plugin.AdapterMappingLoaderTest do
   use ExUnit.Case, async: true
 
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
+
   alias Ourocode.Plugin.AdapterMappingLoader
   alias Ourocode.Plugin.LoadError
   alias Ourocode.Plugin.Loader
@@ -121,7 +123,7 @@ defmodule Ourocode.Plugin.AdapterMappingLoaderTest do
             %LoadError{
               reason: :untrusted_adapter_mapping_plugin,
               plugin_path: expanded_path,
-              manifest_path: ^manifest_path
+              manifest_path: actual_manifest_path
             }} =
              AdapterMappingLoader.load_default(plugin_path,
                allowed_roots: [plugin_path],
@@ -129,7 +131,8 @@ defmodule Ourocode.Plugin.AdapterMappingLoaderTest do
                trusted_approvals: [approval]
              )
 
-    assert expanded_path == Path.expand(plugin_path)
+    assert_same_path(expanded_path, Path.expand(plugin_path))
+    assert_same_path(actual_manifest_path, manifest_path)
   end
 
   defp tmp_plugin_dir!(name) do

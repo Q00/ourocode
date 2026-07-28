@@ -5,7 +5,7 @@ defmodule Ourocode.Terminal.InterviewHandoff do
 
   @spec prompt(String.t(), String.t()) :: String.t()
   def prompt(question, user_message) do
-    """
+    prompt = """
     You are the main ourocode session. An interview checkpoint is paused so
     the user can discuss it with you before answering.
 
@@ -21,6 +21,8 @@ defmodule Ourocode.Terminal.InterviewHandoff do
     Do not include that line for clarifications, translations, explanations,
     or ordinary discussion.
     """
+
+    String.replace(prompt, "\r\n", "\n")
   end
 
   @spec extract_answer(term()) :: String.t() | nil

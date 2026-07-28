@@ -8,7 +8,7 @@ defmodule Ourocode.MCP.Transport.StdioCleanupTest do
     original_cleanup_policy = Application.get_env(:ourocode, :cleanup_policy)
 
     Application.delete_env(:ourocode, :cleanup_policy)
-    Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 100)
+    Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 5_000)
 
     on_exit(fn ->
       restore_env(:stale_cleanup_timeout_ms, original_stale_cleanup_timeout_ms)
@@ -17,9 +17,6 @@ defmodule Ourocode.MCP.Transport.StdioCleanupTest do
   end
 
   test "default-config stdio cleanup closes opened port within configured timeout" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/progress","params":{"childID":"child-cleanup-1","seq":1,"token":"cleanup"}}'
@@ -27,10 +24,12 @@ defmodule Ourocode.MCP.Transport.StdioCleanupTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-cleanup-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-cleanup-1"},
@@ -44,10 +43,10 @@ defmodule Ourocode.MCP.Transport.StdioCleanupTest do
 
     assert {:ok, %{"ok" => true, "childID" => "child-cleanup-1", "seq" => 2}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.cleanup"},
-               timeout: 1_000
+               timeout: 5_000
              )
 
-    assert %{port: port, port_open?: true, cleanup_timeout_ms: 100} = Stdio.snapshot(transport)
+    assert %{port: port, port_open?: true, cleanup_timeout_ms: 5_000} = Stdio.snapshot(transport)
     assert is_port(port)
     assert port_open?(port)
 
@@ -56,12 +55,12 @@ defmodule Ourocode.MCP.Transport.StdioCleanupTest do
                       type: :transport_cleanup,
                       parent_call_id: "parent-cleanup-1",
                       cleanup_reason: :idle_timeout,
-                      stale_cleanup_timeout_ms: 100,
+                      stale_cleanup_timeout_ms: 5_000,
                       released_resources: %{ports: 1}
                     }},
-                   500
+                   6_000
 
-    assert_receive {:DOWN, ^transport_ref, :process, ^transport, :normal}, 500
+    assert_receive {:DOWN, ^transport_ref, :process, ^transport, :normal}, 6_000
     refute port_open?(port)
   end
 

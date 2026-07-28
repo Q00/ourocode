@@ -44,14 +44,14 @@ defmodule Ourocode.Runtime.Stream.ResourcesTest do
   end
 
   test "release_registered closes open ports" do
-    command = System.find_executable("sh")
+    {command, args} = stdin_draining_command()
     assert is_binary(command)
 
     port =
       Port.open({:spawn_executable, command}, [
         :binary,
         :exit_status,
-        {:args, ["-c", "while IFS= read -r line; do :; done"]},
+        {:args, args},
         {:line, 65_536}
       ])
 
@@ -69,6 +69,33 @@ defmodule Ourocode.Runtime.Stream.ResourcesTest do
 
     assert {_released_state, %{process_handles: 1}} = Resources.release_registered(state)
 
-    refute Port.info(port)
+    assert_port_closed(port)
+  end
+
+  defp assert_port_closed(port) do
+    deadline = System.monotonic_time(:millisecond) + 1_000
+
+    unless wait_until_port_closed(port, deadline) do
+      flunk("expected release_registered/1 to close the registered port")
+    end
+  end
+
+  defp wait_until_port_closed(port, deadline) do
+    if port_closed?(port) do
+      true
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        false
+      else
+        Process.sleep(10)
+        wait_until_port_closed(port, deadline)
+      end
+    end
+  end
+
+  defp port_closed?(port), do: Port.info(port) == nil
+
+  defp stdin_draining_command do
+    {System.find_executable("erl"), ["-noshell", "-eval", "io:get_line(''), halt(0)."]}
   end
 end

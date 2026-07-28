@@ -20,7 +20,7 @@ defmodule Ourocode.Plugin.ConfigValidation do
       String.contains?(command, [" ", "\t"]) ->
         schema_error("plugins[#{index}].entrypoint.command must not include arguments")
 
-      Path.type(command) == :absolute ->
+      absolute_path?(command) ->
         schema_error("plugins[#{index}].entrypoint.command must be a relative command")
 
       path_traverses?(command) ->
@@ -53,7 +53,7 @@ defmodule Ourocode.Plugin.ConfigValidation do
       String.contains?(path, ["\0", "\n", "\r"]) ->
         schema_error("plugins[#{index}].#{label} must be a single relative path")
 
-      Path.type(path) == :absolute or path_traverses?(path) ->
+      absolute_path?(path) or path_traverses?(path) ->
         schema_error("plugins[#{index}].#{label} must be a relative path inside the plugin")
 
       true ->
@@ -64,8 +64,13 @@ defmodule Ourocode.Plugin.ConfigValidation do
   @spec path_traverses?(String.t()) :: boolean()
   def path_traverses?(path) when is_binary(path) do
     path
-    |> Path.split()
+    |> String.split(["/", "\\"], trim: true)
     |> Enum.any?(&(&1 == ".."))
+  end
+
+  defp absolute_path?(path) when is_binary(path) do
+    Path.type(path) == :absolute or String.starts_with?(path, ["/", "\\\\"]) or
+      Regex.match?(~r/^[A-Za-z]:[\/\\]/, path)
   end
 
   defp schema_error(message), do: {:error, {:invalid_plugin_config_schema, message}}

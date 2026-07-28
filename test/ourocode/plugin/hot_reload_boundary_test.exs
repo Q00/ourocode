@@ -6,6 +6,8 @@ defmodule Ourocode.Plugin.HotReloadBoundaryTest do
   alias Ourocode.Plugin.MappingSignatureVerifier
   alias Ourocode.Plugin.ConfigSchema
 
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
+
   test "compiles changed plugin code and swaps the active registry without losing prior state" do
     key_id = "hot-reload-key"
     secret = "hot-reload-secret"
@@ -213,18 +215,17 @@ defmodule Ourocode.Plugin.HotReloadBoundaryTest do
 
     assert failed_state.plugin.load_error == failure
 
-    assert failure == %{
-             plugin_id: "ouroboros-plugin",
-             state: :load_failed,
-             reason: :missing_capability_manifest,
-             message:
-               "plugin #{inspect(Path.expand(plugin_path))} is missing required capability manifest at #{inspect(missing_manifest_path)}",
-             plugin_path: Path.expand(plugin_path),
-             manifest_path: missing_manifest_path,
-             source: "official",
-             trust_policy: %{"requires_explicit_approval" => false, "tier" => "official"},
-             attempted_at_ms: 600
-           }
+    assert_load_failure(failure, %{
+      plugin_id: "ouroboros-plugin",
+      state: :load_failed,
+      reason: :missing_capability_manifest,
+      message_body: "is missing required capability manifest at",
+      plugin_path: plugin_path,
+      manifest_path: missing_manifest_path,
+      source: "official",
+      trust_policy: %{"requires_explicit_approval" => false, "tier" => "official"},
+      attempted_at_ms: 600
+    })
 
     assert failed_state.plugin_config.failed_plugins == ["ouroboros-plugin"]
     assert failed_state.plugin_config.plugins_by_id["ouroboros-plugin"].load_error == failure
@@ -377,18 +378,17 @@ defmodule Ourocode.Plugin.HotReloadBoundaryTest do
     assert failed_state.plugin_config.failed_plugins == ["ouroboros-plugin"]
     assert failed_state.plugin_load_failures == [failure]
 
-    assert failure == %{
-             plugin_id: "ouroboros-plugin",
-             state: :load_failed,
-             reason: :invalid_capability_manifest_schema,
-             message:
-               "plugin #{inspect(Path.expand(plugin_path))} has an invalid capability manifest schema at #{inspect(Path.join(plugin_path, "capabilities.json"))}",
-             plugin_path: Path.expand(plugin_path),
-             manifest_path: Path.join(plugin_path, "capabilities.json"),
-             source: "official",
-             trust_policy: %{"requires_explicit_approval" => false, "tier" => "official"},
-             attempted_at_ms: 1_100
-           }
+    assert_load_failure(failure, %{
+      plugin_id: "ouroboros-plugin",
+      state: :load_failed,
+      reason: :invalid_capability_manifest_schema,
+      message_body: "has an invalid capability manifest schema at",
+      plugin_path: plugin_path,
+      manifest_path: Path.join(plugin_path, "capabilities.json"),
+      source: "official",
+      trust_policy: %{"requires_explicit_approval" => false, "tier" => "official"},
+      attempted_at_ms: 1_100
+    })
 
     assert failed_state.plugin_transitions == [
              %{
@@ -441,18 +441,17 @@ defmodule Ourocode.Plugin.HotReloadBoundaryTest do
 
     assert reloaded_state.plugin_config.plugins_by_id["vim-mode"].state == :load_failed
 
-    assert failure == %{
-             plugin_id: "vim-mode",
-             state: :load_failed,
-             reason: :missing_capability_manifest,
-             message:
-               "plugin #{inspect(Path.expand(failed_plugin_path))} is missing required capability manifest at #{inspect(failed_manifest_path)}",
-             plugin_path: Path.expand(failed_plugin_path),
-             manifest_path: failed_manifest_path,
-             source: "third_party",
-             trust_policy: %{"requires_explicit_approval" => true, "tier" => "community_code"},
-             attempted_at_ms: 700
-           }
+    assert_load_failure(failure, %{
+      plugin_id: "vim-mode",
+      state: :load_failed,
+      reason: :missing_capability_manifest,
+      message_body: "is missing required capability manifest at",
+      plugin_path: failed_plugin_path,
+      manifest_path: failed_manifest_path,
+      source: "third_party",
+      trust_policy: %{"requires_explicit_approval" => true, "tier" => "community_code"},
+      attempted_at_ms: 700
+    })
 
     assert reloaded_state.plugin_load_failures == [failure]
 
@@ -580,6 +579,18 @@ defmodule Ourocode.Plugin.HotReloadBoundaryTest do
       loadable?: false,
       reason: :disabled_in_config
     }
+  end
+
+  defp assert_load_failure(failure, expected) do
+    expected_message =
+      "plugin #{inspect(failure.plugin_path)} #{expected.message_body} #{inspect(failure.manifest_path)}"
+
+    assert Map.drop(failure, [:message, :plugin_path, :manifest_path]) ==
+             Map.drop(expected, [:message_body, :plugin_path, :manifest_path])
+
+    assert failure.message == expected_message
+    assert_same_path(failure.plugin_path, expected.plugin_path)
+    assert_same_path(failure.manifest_path, expected.manifest_path)
   end
 
   defp official_plugin_identity do

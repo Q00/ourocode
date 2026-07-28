@@ -43,7 +43,7 @@ defmodule Ourocode.Config.RawLoader do
 
   @spec discover_config_files(Path.t()) :: [Path.t()]
   def discover_config_files(project_dir) when is_binary(project_dir) do
-    root_dir = Path.expand(project_dir)
+    root_dir = absolute_path(project_dir)
 
     @supported_config_candidates
     |> Enum.map(&Path.join(root_dir, &1))
@@ -52,7 +52,7 @@ defmodule Ourocode.Config.RawLoader do
 
   @spec load(Path.t()) :: {:ok, RawConfig.t()} | {:error, Ourocode.Config.raw_config_error()}
   def load(project_dir) when is_binary(project_dir) do
-    root_dir = Path.expand(project_dir)
+    root_dir = absolute_path(project_dir)
 
     Enum.reduce_while(discover_config_files(root_dir), {:ok, []}, fn path, {:ok, entries} ->
       case parse_config_file(path, root_dir) do
@@ -74,10 +74,10 @@ defmodule Ourocode.Config.RawLoader do
   @spec parse_config_file(Path.t(), Path.t() | nil) ::
           {:ok, RawConfig.file_entry()} | {:error, Ourocode.Config.raw_config_error()}
   def parse_config_file(path, root_dir \\ nil) when is_binary(path) do
-    expanded_path = Path.expand(path)
+    expanded_path = absolute_path(path)
 
     root_dir =
-      if is_binary(root_dir), do: Path.expand(root_dir), else: Path.dirname(expanded_path)
+      if is_binary(root_dir), do: absolute_path(root_dir), else: Path.dirname(expanded_path)
 
     with {:ok, format} <- config_format(expanded_path),
          {:ok, contents} <- read_config_file(expanded_path),
@@ -103,6 +103,14 @@ defmodule Ourocode.Config.RawLoader do
       |> override_keys_from_string_map()
       |> Map.merge(override_keys_from_string_map(cleanup_policy))
       |> then(&{:ok, &1})
+    end
+  end
+
+  defp absolute_path(path) do
+    if Path.type(path) == :absolute do
+      path
+    else
+      Path.expand(path)
     end
   end
 

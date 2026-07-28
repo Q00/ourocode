@@ -73,6 +73,7 @@ defmodule Ourocode.CLITest do
   alias Ourocode.CLI.SmokeTest
 
   import ExUnit.CaptureIO
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
 
   test "startup resolves the current working directory by default" do
     assert Ourocode.CLI.resolve_project_dir() == {:ok, File.cwd!()}
@@ -181,11 +182,11 @@ defmodule Ourocode.CLITest do
   test "launch prints version without bootstrapping the terminal UI" do
     output =
       capture_io(fn ->
-        assert {:ok, %{mode: :version, version: "0.1.13"}} =
+        assert {:ok, %{mode: :version, version: "0.1.14"}} =
                  Ourocode.CLI.launch(["--version"], Ourocode.CLITest.TerminalBootstrapSpy)
       end)
 
-    assert output == "ourocode 0.1.13\n"
+    assert output == "ourocode 0.1.14\n"
     refute_receive {:terminal_bootstrap, _context}, 50
   end
 
@@ -341,7 +342,7 @@ defmodule Ourocode.CLITest do
              )
 
     assert_receive {:terminal_bootstrap, ^context}
-    assert context.project_dir == project_dir
+    assert_same_path(context.project_dir, project_dir)
     assert context.plugin_config.plugins |> Enum.map(& &1.id) == ["ouroboros-plugin"]
   after
     Application.delete_env(:ourocode, :cli_test_pid)

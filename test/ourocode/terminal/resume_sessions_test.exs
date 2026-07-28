@@ -3,6 +3,7 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
 
   alias Ourocode.Journal
   alias Ourocode.Terminal.ResumeSessions
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
 
   test "handles journal replay actions only" do
     assert ResumeSessions.handles?(:resume_session)
@@ -20,9 +21,10 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
     Journal.append!(session_path, %{type: :event, event_seq: 2})
 
     assert [
-             %{id: "session-alpha", path: ^session_path, event_count: 2, updated_label: updated}
+             %{id: "session-alpha", path: actual_path, event_count: 2, updated_label: updated}
            ] = ResumeSessions.list(%{journal_path: active_path})
 
+    assert_same_path(actual_path, session_path)
     assert is_binary(updated)
   end
 
@@ -35,13 +37,17 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
 
     state = %{journal_path: active_path}
 
-    assert ResumeSessions.resolve_path(state, "session-bravo") == {:ok, session_path}
-    assert ResumeSessions.resolve_path(state, "1") == {:ok, session_path}
+    assert {:ok, actual_session_path} = ResumeSessions.resolve_path(state, "session-bravo")
+    assert_same_path(actual_session_path, session_path)
+
+    assert {:ok, indexed_session_path} = ResumeSessions.resolve_path(state, "1")
+    assert_same_path(indexed_session_path, session_path)
 
     external_path = Path.join(dir, "external.jsonl")
     File.write!(external_path, "")
 
-    assert ResumeSessions.resolve_path(state, external_path) == {:ok, external_path}
+    assert {:ok, actual_external_path} = ResumeSessions.resolve_path(state, external_path)
+    assert_same_path(actual_external_path, external_path)
 
     assert ResumeSessions.resolve_path(state, "missing") ==
              {:error, {:unknown_resume_session, "missing"}}
@@ -60,8 +66,10 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
     assert {:ok, %{sessions: [%{id: "session-charlie", event_count: 1}]}} =
              ResumeSessions.run([], state, output)
 
-    assert {:ok, %{path: ^session_path, events: [_event]}} =
+    assert {:ok, %{path: actual_path, events: [_event]}} =
              ResumeSessions.run(["session-charlie"], state, output)
+
+    assert_same_path(actual_path, session_path)
 
     {_input, text} = StringIO.contents(output)
     assert text =~ "resume workspace"
@@ -106,8 +114,10 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
     assert {:ok, %{sessions: [%{id: "session-delta"}]}} =
              ResumeSessions.dispatch(:resume_session, %{args: []}, state)
 
-    assert {:ok, %{path: ^session_path, events: [_event]}} =
+    assert {:ok, %{path: actual_path, events: [_event]}} =
              ResumeSessions.dispatch(:replay_journal, %{args: ["session-delta"]}, state)
+
+    assert_same_path(actual_path, session_path)
 
     {_input, text} = StringIO.contents(output)
     assert text =~ "resume workspace"
@@ -118,10 +128,12 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
     dir = tmp_dir!("resume-session-startup")
     journal_path = Path.join(dir, "runtime.jsonl")
 
-    assert ResumeSessions.journal_dir(%{
-             startup_result: %{runtime: %{journal: %{path: journal_path}}}
-           }) ==
-             dir
+    assert_same_path(
+      ResumeSessions.journal_dir(%{
+        startup_result: %{runtime: %{journal: %{path: journal_path}}}
+      }),
+      dir
+    )
 
     assert ResumeSessions.journal_dir(%{}) == Path.join([File.cwd!(), ".ourocode", "journals"])
   end

@@ -29,6 +29,7 @@ defmodule Ourocode.Terminal.FileDiscovery do
   def parse_rg_files(out) when is_binary(out) do
     out
     |> String.split("\n", trim: true)
+    |> Enum.map(&String.trim_trailing(&1, "\r"))
     |> Enum.reject(&ignored_path?/1)
     |> Enum.take(@limit)
   end

@@ -27,7 +27,7 @@ defmodule Ourocode.Terminal.ConversationStoreTest do
 
     conversation = Conversation.add_turn(Conversation.new(), "a", "b")
     :ok = ConversationStore.save(project, conversation, state_dir: state_dir)
-    [file] = Path.wildcard(Path.join([state_dir, "chat", "*.json"]))
+    [file] = wildcard_chat_files(state_dir)
     File.write!(file, "{not json")
 
     assert Conversation.empty?(ConversationStore.load(project, state_dir: state_dir))
@@ -70,5 +70,12 @@ defmodule Ourocode.Terminal.ConversationStoreTest do
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     dir
+  end
+
+  defp wildcard_chat_files(state_dir) do
+    [state_dir, "chat", "*.json"]
+    |> Path.join()
+    |> String.replace("\\", "/")
+    |> Path.wildcard()
   end
 end

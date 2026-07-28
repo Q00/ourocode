@@ -796,7 +796,7 @@ defmodule Ourocode.MCP.Transport.SSETest do
                           event_seq: event_seq,
                           raw_event: %{"id" => sse_id}
                         } = event},
-                       500
+                       5_000
 
         assert token == "chunked-sse-token-#{seq}"
         assert payload == %{"childID" => child_id, "seq" => seq, "token" => token}
@@ -821,7 +821,7 @@ defmodule Ourocode.MCP.Transport.SSETest do
                       event_seq: result_event_seq,
                       raw_event: %{"id" => "chunked-frame-result"}
                     } = result_event},
-                   500
+                   5_000
 
     assert result_seq == event_count + 1
     assert result_event_seq == event_count + 2

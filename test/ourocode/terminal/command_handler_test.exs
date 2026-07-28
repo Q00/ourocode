@@ -6,6 +6,7 @@ defmodule Ourocode.Terminal.CommandHandlerTest do
   alias Ourocode.Terminal.CommandInput
   alias Ourocode.Runtime.FocusState
   alias Ourocode.Terminal.FocusNavigation
+  import Ourocode.Test.PathAssertions, only: [assert_same_path: 2]
 
   test "handle renders built-in help commands from the contextual registry" do
     {:ok, output} = StringIO.open("")
@@ -115,8 +116,10 @@ defmodule Ourocode.Terminal.CommandHandlerTest do
     assert {:ok, %{sessions: [%{id: "session-alpha", event_count: 1}]}} =
              CommandHandler.handle(CommandInput.command_event("/resume"), state)
 
-    assert {:ok, %{path: ^session_path, events: [_event]}} =
+    assert {:ok, %{path: replayed_path, events: [_event]}} =
              CommandHandler.handle(CommandInput.command_event("/resume session-alpha"), state)
+
+    assert_same_path(replayed_path, session_path)
 
     {_input, text} = StringIO.contents(output)
     assert text =~ "resume workspace"

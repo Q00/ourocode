@@ -20,11 +20,11 @@ defmodule Ourocode.Terminal.HudModelTest do
         %{"runtime" => "?", "status" => "healthy"},
         [],
         :normal,
-        %{model_status: "codex  (ChatGPT) · 1.2s"},
+        %{model_status: "provider: codex  (ChatGPT)  model: gpt-5.3-codex · 1.2s"},
         100
       )
 
-    assert hud.left_status == "codex  (ChatGPT) · 1.2s   ready"
+    assert hud.left_status == "provider: codex  (ChatGPT)  model: gpt-5.3-codex · 1.2s   ready"
   end
 
   test "model status is omitted when absent so the strip stays compact" do

@@ -511,7 +511,7 @@ defmodule Ourocode.Plugin.LoaderTest do
       File.rm_rf!(path)
     end)
 
-    path
+    Path.expand(path)
   end
 
   defp tmp_config_file!(name, contents) do

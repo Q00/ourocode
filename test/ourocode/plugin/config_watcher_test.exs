@@ -3,6 +3,7 @@ defmodule Ourocode.Plugin.ConfigWatcherTest do
 
   alias Ourocode.Journal
   alias Ourocode.Plugin.ConfigWatcher
+  import Ourocode.Test.PathAssertions, only: [path_key: 1]
 
   test "detects plugin config create modify and delete and emits reload requests without UI restart" do
     project_dir = tmp_dir!("plugin-config-watcher")
@@ -58,10 +59,12 @@ defmodule Ourocode.Plugin.ConfigWatcherTest do
     project_dir = tmp_dir!("plugin-config-candidates")
 
     paths = ConfigWatcher.source_paths(project_dir)
+    path_keys = Enum.map(paths, &path_key/1)
+    project_dir_key = path_key(project_dir)
 
-    assert Path.join(project_dir, ".ourocode/config.json") in paths
-    assert Path.join(project_dir, "ourocode.json") in paths
-    assert Enum.all?(paths, &String.starts_with?(&1, project_dir))
+    assert path_key(Path.join(project_dir, ".ourocode/config.json")) in path_keys
+    assert path_key(Path.join(project_dir, "ourocode.json")) in path_keys
+    assert Enum.all?(path_keys, &String.starts_with?(&1, project_dir_key))
   end
 
   test "manual polling ignores unrelated file create modify and delete changes without reload events" do

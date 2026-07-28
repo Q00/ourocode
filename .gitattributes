@@ -1,0 +1,21 @@
+# Normalize line endings so the working tree is identical on every platform.
+# Text files are checked out with LF even on Windows; this keeps CRLF-sensitive
+# fixtures (e.g. SkillLoader frontmatter tests) behaving the same on Windows CI.
+* text=auto eol=lf
+
+# Scripts that must stay LF regardless of detection.
+*.sh   text eol=lf
+*.exs  text eol=lf
+*.ex   text eol=lf
+*.ps1  text eol=lf
+
+# Known binaries — never apply EOL conversion.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.gz   binary
+*.zip  binary
+*.exe  binary
+*.dump binary

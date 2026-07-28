@@ -35,7 +35,11 @@ defmodule Ourocode.Runtime.SeedArtifact do
   def extract_yaml(text) when is_binary(text) do
     case String.split(text, @seed_marker, parts: 2) do
       [_before, yaml] ->
-        yaml = String.trim(yaml)
+        yaml =
+          yaml
+          |> String.replace("\r\n", "\n")
+          |> String.trim()
+
         if yaml == "", do: :ignore, else: {:ok, yaml}
 
       _other ->
@@ -53,7 +57,7 @@ defmodule Ourocode.Runtime.SeedArtifact do
   @spec write(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def write(cwd, seed_id, seed_yaml)
       when is_binary(cwd) and is_binary(seed_id) and is_binary(seed_yaml) do
-    path = Path.join(Path.expand(cwd), seed_id <> ".yaml")
+    path = Path.join(cwd, seed_id <> ".yaml")
 
     case File.write(path, seed_yaml <> "\n") do
       :ok -> {:ok, path}

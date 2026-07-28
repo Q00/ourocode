@@ -127,7 +127,7 @@ defmodule Ourocode.Plugin.ActionMappingLoaderTest do
             %LoadError{
               reason: :untrusted_action_mapping_plugin,
               plugin_path: expanded_path,
-              manifest_path: ^manifest_path
+              manifest_path: actual_manifest_path
             }} =
              ActionMappingLoader.load_default(plugin_path,
                allowed_roots: [plugin_path],
@@ -135,7 +135,8 @@ defmodule Ourocode.Plugin.ActionMappingLoaderTest do
                trusted_approvals: [approval]
              )
 
-    assert expanded_path == Path.expand(plugin_path)
+    assert_same_path(expanded_path, Path.expand(plugin_path))
+    assert_same_path(actual_manifest_path, manifest_path)
   end
 
   defp tmp_plugin_dir!(name) do
@@ -169,5 +170,20 @@ defmodule Ourocode.Plugin.ActionMappingLoaderTest do
       "key_id" => key_id,
       "value" => signature
     })
+  end
+
+  defp assert_same_path(left, right) do
+    if match?({:win32, _}, :os.type()) do
+      assert path_key(left) == path_key(right)
+    else
+      assert left == right
+    end
+  end
+
+  defp path_key(path) do
+    path
+    |> Path.expand()
+    |> String.replace("\\", "/")
+    |> String.downcase()
   end
 end

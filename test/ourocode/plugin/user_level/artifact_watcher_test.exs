@@ -5,7 +5,12 @@ defmodule Ourocode.Plugin.UserLevel.ArtifactWatcherTest do
   alias Ourocode.Plugin.UserLevel.Capability.Command, as: CommandCapability
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "ourocode_artifact_watcher_#{System.unique_integer([:positive])}")
+    tmp =
+      Path.join(
+        System.tmp_dir!(),
+        "ourocode_artifact_watcher_#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(tmp)
     on_exit(fn -> File.rm_rf!(tmp) end)
     %{cwd: tmp}
@@ -14,6 +19,20 @@ defmodule Ourocode.Plugin.UserLevel.ArtifactWatcherTest do
   defp write!(path, content) do
     path |> Path.dirname() |> File.mkdir_p!()
     File.write!(path, content)
+  end
+
+  defp path_key(path) do
+    path
+    |> Path.expand()
+    |> String.replace("\\", "/")
+    |> maybe_downcase_windows_path()
+  end
+
+  defp maybe_downcase_windows_path(path) do
+    case :os.type() do
+      {:win32, _name} -> String.downcase(path)
+      _other -> path
+    end
   end
 
   test "matches a seed.md under the declared glob", %{cwd: cwd} do
@@ -30,7 +49,7 @@ defmodule Ourocode.Plugin.UserLevel.ArtifactWatcherTest do
     [artifact] = ArtifactWatcher.scan(command, cwd)
 
     assert artifact.kind == :seed
-    assert artifact.path == seed
+    assert path_key(artifact.path) == path_key(seed)
     assert artifact.glob == ".omx/superpowers/runs/*/seed.md"
     assert artifact.size > 0
     assert "sha256:" <> _ = artifact.digest
@@ -53,12 +72,12 @@ defmodule Ourocode.Plugin.UserLevel.ArtifactWatcherTest do
     Enum.each([handoff, report, log, other], &write!(&1, "data"))
 
     artifacts = ArtifactWatcher.scan(command, cwd)
-    by_path = Map.new(artifacts, &{&1.path, &1.kind})
+    by_path = Map.new(artifacts, &{path_key(&1.path), &1.kind})
 
-    assert by_path[handoff] == :handoff
-    assert by_path[report] == :report
-    assert by_path[log] == :log
-    assert by_path[other] == :other
+    assert by_path[path_key(handoff)] == :handoff
+    assert by_path[path_key(report)] == :report
+    assert by_path[path_key(log)] == :log
+    assert by_path[path_key(other)] == :other
   end
 
   test "deduplicates artifacts that match multiple globs", %{cwd: cwd} do

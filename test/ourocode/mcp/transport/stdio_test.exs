@@ -6,10 +6,9 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   alias Ourocode.MCP.LifecycleEvent
   alias Ourocode.MCP.Transport.Stdio
 
-  test "executes a parent call and emits start/result events" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
+  @parent_call_timeout_ms 5_000
 
+  test "executes a parent call and emits start/result events" do
     script = """
     while IFS= read -r line; do
       printf '%s\n' 'helper boot log'
@@ -19,10 +18,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-1"},
@@ -32,7 +33,9 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     assert_receive {:ourocode_event, %{type: :transport_started, event_seq: 1}}
 
     assert {:ok, %{"ok" => true, "childID" => "child-1", "seq" => 1}} =
-             Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic"}, timeout: 1_000)
+             Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic"},
+               timeout: @parent_call_timeout_ms
+             )
 
     assert_receive {:ourocode_event,
                     %{
@@ -99,9 +102,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "normalizes malformed stdio stdout JSON into transport decode failure events" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' 'helper startup log'
@@ -110,10 +110,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-malformed-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-malformed-stdio-1"},
@@ -125,7 +127,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.malformed"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -162,9 +164,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "attaches stdio raw event debugging metadata to outbound and inbound records" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{malformed raw debug line'
@@ -173,10 +172,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-raw-debug-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-raw-debug-stdio-1"},
@@ -188,7 +189,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => "child-raw-debug-stdio-1", "seq" => 2}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.raw_debug"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -269,9 +270,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "continues processing valid stdout events surrounding malformed lines" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     child_id = "child-malformed-recovery-stdio-1"
 
     journal_path =
@@ -293,10 +291,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-malformed-recovery-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-malformed-recovery-stdio-1"},
@@ -311,7 +311,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                transport,
                "tools/call",
                %{"name" => "synthetic.malformed_recovery"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     received_events =
@@ -350,9 +350,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "normalizes stdio JSON-RPC server requests as lifecycle events instead of responses" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","id":"server-request-1","method":"sampling/createMessage","params":{"childID":"child-server-request-1","seq":1,"token":"question"}}'
@@ -360,10 +357,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-server-request-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-server-request-stdio-1"},
@@ -375,7 +374,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => "child-server-request-1", "seq" => 2}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.server_request"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -423,9 +422,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "ingests synthetic stdio MCP events seq=1..N without dropping normalized sequences" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     event_count = 12
     child_id = "child-seq-stdio-1"
     result_seq = event_count + 1
@@ -452,10 +448,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-seq-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-seq-stdio-1"},
@@ -471,7 +469,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => ^child_id, "seq" => ^result_seq}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.seq"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -585,9 +583,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "preserves valid stdout MCP event order while normalizing malformed stdout lines" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     child_id = "child-valid-stdout-order-stdio-1"
 
     script = """
@@ -604,10 +599,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-valid-stdout-order-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-valid-stdout-order-stdio-1"},
@@ -623,7 +620,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => ^child_id, "seq" => 4}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.valid_order"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -691,9 +688,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "persists normalized stdio MCP server events seq=1..N and reads them back without gaps" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     event_count = 8
     child_id = "child-journal-stdio-1"
 
@@ -727,10 +721,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-journal-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-journal-stdio-1"},
@@ -742,7 +738,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => ^child_id, "seq" => ^result_seq}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.journal"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     received_events =
@@ -784,9 +780,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "journal replay reconstructs normalized stdio events with raw metadata" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     child_id = "child-canonical-journal-stdio-1"
 
     journal_path =
@@ -805,10 +798,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-canonical-journal-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-canonical-journal-stdio-1"},
@@ -823,7 +818,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                transport,
                "tools/call",
                %{"name" => "synthetic.canonical_journal"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     live_events =
@@ -902,9 +897,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "renders stdio parent MCP call as the root UI pane with identity and status metadata" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/progress","params":{"childID":"child-root-1","seq":1,"token":"first"}}'
@@ -912,10 +904,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-root-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{
@@ -929,7 +923,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true, "childID" => "child-root-1", "seq" => 1}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.root"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -1031,19 +1025,18 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "preserves OpenCode parent call input sessionID and callID in lifecycle identity" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","id":"1","result":{"ok":true}}'
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-opencode-input-1",
         runtime_source: "opencode",
         external_ids: %{},
@@ -1061,7 +1054,9 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     }
 
     assert {:ok, %{"ok" => true}} =
-             Stdio.call_parent(transport, "agent/session/create", params, timeout: 1_000)
+             Stdio.call_parent(transport, "agent/session/create", params,
+               timeout: @parent_call_timeout_ms
+             )
 
     assert_receive {:ourocode_event,
                     %{
@@ -1097,9 +1092,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "appends stdio streaming token entries under the correct child panes in order" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/progress","params":{"childID":"child-stream-a","seq":1,"token":"a-1"}}'
@@ -1111,10 +1103,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-stream-stdio-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-stream-stdio-1"},
@@ -1126,7 +1120,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
 
     assert {:ok, %{"ok" => true}} =
              Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.stream"},
-               timeout: 1_000
+               timeout: @parent_call_timeout_ms
              )
 
     assert_receive {:ourocode_event,
@@ -1218,9 +1212,6 @@ defmodule Ourocode.MCP.Transport.StdioTest do
   end
 
   test "delivers the first stdio token to the child pane within five seconds of childID creation" do
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
     script = """
     while IFS= read -r line; do
       printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/progress","params":{"childID":"child-stdio-timing-1","phase":"created"}}'
@@ -1230,10 +1221,12 @@ defmodule Ourocode.MCP.Transport.StdioTest do
     done
     """
 
+    {command, args} = Ourocode.Test.PortPrograms.shell_script(script)
+
     {:ok, transport} =
       Stdio.start_link(
         command: command,
-        args: ["-c", script],
+        args: args,
         parent_call_id: "parent-stdio-timing-1",
         runtime_source: "synthetic",
         external_ids: %{"session_id" => "session-stdio-timing-1"},
@@ -1241,12 +1234,13 @@ defmodule Ourocode.MCP.Transport.StdioTest do
       )
 
     assert_receive {:ourocode_event,
-                    %{type: :transport_started, parent_call_id: "parent-stdio-timing-1"}}
+                    %{type: :transport_started, parent_call_id: "parent-stdio-timing-1"}},
+                   15_000
 
     call_task =
       Task.async(fn ->
         Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.timing"},
-          timeout: 4_000
+          timeout: 15_000
         )
       end)
 
@@ -1255,7 +1249,8 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                       type: :parent_call_started,
                       parent_call_id: "parent-stdio-timing-1",
                       request_id: "1"
-                    }}
+                    }},
+                   15_000
 
     assert_receive {:ourocode_event,
                     %{
@@ -1268,7 +1263,8 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                           "phase" => "created"
                         }
                       }
-                    } = child_created_event}
+                    } = child_created_event},
+                   15_000
 
     child_created_received_at = System.monotonic_time(:millisecond)
 

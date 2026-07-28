@@ -15,13 +15,13 @@ defmodule Ourocode.Command.Registry.SkillLoaderTest do
     assert SkillLoader.discover_files(root) == [
              %{
                root: Path.expand(root),
-               dir: Path.join(root, "alpha"),
-               file: Path.join([root, "alpha", "SKILL.md"])
+               dir: Path.expand(Path.join(root, "alpha")),
+               file: Path.expand(Path.join([root, "alpha", "SKILL.md"]))
              },
              %{
                root: Path.expand(root),
-               dir: Path.join(root, "beta"),
-               file: Path.join([root, "beta", "SKILL.md"])
+               dir: Path.expand(Path.join(root, "beta")),
+               file: Path.expand(Path.join([root, "beta", "SKILL.md"]))
              }
            ]
   after
@@ -29,22 +29,29 @@ defmodule Ourocode.Command.Registry.SkillLoaderTest do
   end
 
   test "parses simple scalar frontmatter and ignores comments or malformed lines" do
-    assert SkillLoader.parse_frontmatter("""
-           ---
-           name: "ship-it"
-           description: Prepare: release checklist
-           # ignored: true
+    lf_frontmatter = """
+    ---
+    name: "ship-it"
+    description: Prepare: release checklist
+    # ignored: true
 
-           malformed
-           mcp_tool: release_planner
-           ---
+    malformed
+    mcp_tool: release_planner
+    ---
 
-           # Body
-           """) == %{
-             "name" => "\"ship-it\"",
-             "description" => "Prepare: release checklist",
-             "mcp_tool" => "release_planner"
-           }
+    # Body
+    """
+
+    expected = %{
+      "name" => "\"ship-it\"",
+      "description" => "Prepare: release checklist",
+      "mcp_tool" => "release_planner"
+    }
+
+    assert SkillLoader.parse_frontmatter(lf_frontmatter) == expected
+
+    crlf_frontmatter = String.replace(lf_frontmatter, "\n", "\r\n")
+    assert SkillLoader.parse_frontmatter(crlf_frontmatter) == expected
 
     assert SkillLoader.parse_frontmatter("# No frontmatter") == %{}
     assert SkillLoader.parse_frontmatter("---\nname: missing-close") == %{}

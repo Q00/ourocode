@@ -6,7 +6,12 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocationPostExecutionTest do
   alias Ourocode.TaskRequest
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "ourocode_invocation_post_#{System.unique_integer([:positive])}")
+    tmp =
+      Path.join(
+        System.tmp_dir!(),
+        "ourocode_invocation_post_#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(tmp)
     on_exit(fn -> File.rm_rf!(tmp) end)
     %{cwd: tmp}
@@ -74,12 +79,13 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocationPostExecutionTest do
 
     assert envelope.status == :invoked
 
-    assert [%{kind: :seed, path: ^seed}] = envelope.artifacts
+    assert [%{kind: :seed, path: artifact_seed}] = envelope.artifacts
+    assert_same_path(artifact_seed, seed)
     assert envelope.continuation.action == :suggest
-    assert envelope.continuation.seed_path == seed
+    assert_same_path(envelope.continuation.seed_path, seed)
 
     assert envelope.continuation.command_template ==
-             "ooo run seed_path=#{seed}"
+             "ooo run seed_path=#{envelope.continuation.seed_path}"
   end
 
   test "auto_run continuation when prompt opts in explicitly", %{cwd: cwd} do
@@ -105,7 +111,11 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocationPostExecutionTest do
     runner = fn _cmd, _argv, _opts -> {:ok, %{status: 0, stdout: "", stderr: ""}} end
 
     pid = self()
-    journal = fn event -> send(pid, {:journal, event["event_type"]}); :ok end
+
+    journal = fn event ->
+      send(pid, {:journal, event["event_type"]})
+      :ok
+    end
 
     {:ok, _envelope} =
       UserLevelPluginInvocation.execute(task("ooo superpowers tdd --goal x"), %{
@@ -134,7 +144,11 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocationPostExecutionTest do
       })
 
     pid = self()
-    journal = fn event -> send(pid, {:journal, event["event_type"]}); :ok end
+
+    journal = fn event ->
+      send(pid, {:journal, event["event_type"]})
+      :ok
+    end
 
     {:ok, envelope} =
       UserLevelPluginInvocation.execute(task("ooo superpowers tdd --goal x"), %{
@@ -151,5 +165,20 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocationPostExecutionTest do
     assert_received {:journal, "user_level_dispatch"}
     refute_received {:journal, "user_level_artifact"}
     refute_received {:journal, "user_level_continuation"}
+  end
+
+  defp assert_same_path(left, right) do
+    if match?({:win32, _}, :os.type()) do
+      assert path_key(left) == path_key(right)
+    else
+      assert left == right
+    end
+  end
+
+  defp path_key(path) do
+    path
+    |> Path.expand()
+    |> String.replace("\\", "/")
+    |> String.downcase()
   end
 end

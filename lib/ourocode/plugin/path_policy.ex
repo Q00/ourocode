@@ -69,40 +69,42 @@ defmodule Ourocode.Plugin.PathPolicy do
   end
 
   defp canonical_path(path) do
-    expanded_path = Path.expand(path)
-    parts = Path.split(expanded_path)
+    path
+    |> Path.expand()
+    |> Path.split()
+    |> resolve_existing_segments()
+  end
 
-    case deepest_existing_prefix(parts) do
-      {existing_parts, remaining_parts} ->
-        Path.join([realpath(Path.join(existing_parts)) | remaining_parts])
+  defp resolve_existing_segments([]), do: ""
+  defp resolve_existing_segments([root | parts]), do: resolve_existing_segments(root, parts)
 
-      nil ->
-        expanded_path
+  defp resolve_existing_segments(path, []), do: path
+
+  defp resolve_existing_segments(path, [part | remaining_parts]) do
+    candidate = Path.join(path, part)
+
+    if File.exists?(candidate) do
+      candidate
+      |> resolve_link()
+      |> resolve_existing_segments(remaining_parts)
+    else
+      Path.join([candidate | remaining_parts])
     end
   end
 
-  defp realpath(path) do
-    case System.find_executable("realpath") do
-      nil ->
-        path
+  defp resolve_link(path) do
+    charlist_path = String.to_charlist(path)
 
-      executable ->
-        case System.cmd(executable, [path], stderr_to_stdout: true) do
-          {resolved, 0} -> String.trim_trailing(resolved)
-          {_output, _status} -> path
-        end
+    with {:ok,
+          {:file_info, _size, :symlink, _access, _atime, _mtime, _ctime, _mode, _links,
+           _major_device, _minor_device, _inode, _uid, _gid}} <-
+           :file.read_link_info(charlist_path),
+         {:ok, target} <- :file.read_link(charlist_path) do
+      target
+      |> List.to_string()
+      |> Path.expand(Path.dirname(path))
+    else
+      _ -> path
     end
-  end
-
-  defp deepest_existing_prefix(parts) do
-    Enum.reduce_while(length(parts)..1//-1, nil, fn count, _acc ->
-      existing_parts = Enum.take(parts, count)
-
-      if File.exists?(Path.join(existing_parts)) do
-        {:halt, {existing_parts, Enum.drop(parts, count)}}
-      else
-        {:cont, nil}
-      end
-    end)
   end
 end

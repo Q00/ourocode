@@ -65,6 +65,30 @@ defmodule Ourocode.Config.RawLoaderTest do
     File.rm_rf!(Process.get(:raw_loader_tmp_dir))
   end
 
+  test "preserves Windows path spelling while parsing CRLF config files with portable relative paths" do
+    dir = unique_tmp_dir("windows-paths")
+    File.mkdir_p!(Path.join(dir, ".ourocode"))
+    config_path = Path.join(dir, ".ourocode/config.json")
+
+    File.write!(
+      config_path,
+      "{\r\n  \"runtime\": {\r\n    \"repeat-count\": 3\r\n  }\r\n}\r\n"
+    )
+
+    assert {:ok, raw} = RawLoader.load(dir)
+    assert raw.root_dir == dir
+
+    assert [
+             %{
+               path: ^config_path,
+               relative_path: ".ourocode/config.json",
+               data: %{"runtime" => %{"repeat_count" => 3}}
+             }
+           ] = raw.files
+  after
+    File.rm_rf!(Process.get(:raw_loader_tmp_dir))
+  end
+
   test "projects only supported runtime override keys from raw config" do
     raw = %{
       "runtime" => %{

@@ -5,6 +5,7 @@ defmodule Ourocode.Plugin.RendererMappingLoaderTest do
   alias Ourocode.Plugin.Loader
   alias Ourocode.Plugin.MappingSignatureVerifier
   alias Ourocode.Plugin.RendererMappingLoader
+  import Ourocode.Test.PathAssertions
 
   defmodule OfficialChildRenderer do
     def render(%{kind: :child_session, child_id: child_id, pane_state: pane_state}) do
@@ -127,7 +128,7 @@ defmodule Ourocode.Plugin.RendererMappingLoaderTest do
             %LoadError{
               reason: :untrusted_renderer_mapping_plugin,
               plugin_path: expanded_path,
-              manifest_path: ^manifest_path
+              manifest_path: expanded_manifest_path
             }} =
              RendererMappingLoader.load_default(plugin_path,
                allowed_roots: [plugin_path],
@@ -135,7 +136,8 @@ defmodule Ourocode.Plugin.RendererMappingLoaderTest do
                trusted_approvals: [approval]
              )
 
-    assert expanded_path == Path.expand(plugin_path)
+    assert_same_path(expanded_path, Path.expand(plugin_path))
+    assert_same_path(expanded_manifest_path, manifest_path)
   end
 
   defp tmp_plugin_dir!(name) do

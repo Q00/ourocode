@@ -7,6 +7,7 @@ defmodule Ourocode.Terminal.FrameSections do
   def parse(frame) when is_binary(frame) do
     frame
     |> String.split("\n")
+    |> Enum.map(&String.trim_trailing(&1, "\r"))
     |> Enum.reduce({[], nil}, fn line, {sections, current} ->
       cond do
         String.starts_with?(line, "+-- ") ->

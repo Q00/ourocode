@@ -32,6 +32,8 @@ defmodule Ourocode.Terminal.NodeTerminalRuntimeTest do
   defp node_terminal_script do
     """
     const { spawnSync } = require("node:child_process");
+    const fs = require("node:fs");
+    const os = require("node:os");
     const path = require("node:path");
 
     const forbiddenGlobals = ["window", "document", "HTMLElement", "DOMParser"];
@@ -86,15 +88,31 @@ defmodule Ourocode.Terminal.NodeTerminalRuntimeTest do
     if "node_terminal_render_ok" not in result, do: System.halt(1)
     `;
 
-    const child = spawnSync("elixir", [...codePaths, "-e", elixirCode], {
-      cwd: process.env.OUROCODE_PROJECT_DIR,
-      env: process.env,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "ourocode-node-terminal-"));
+    const elixirScriptPath = path.join(scriptDir, "runtime.exs");
+    fs.writeFileSync(elixirScriptPath, elixirCode, "utf8");
+
+    const elixirArgs = [...codePaths, elixirScriptPath];
+    const child =
+      process.platform === "win32"
+        ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "elixir.bat", ...elixirArgs], {
+            cwd: process.env.OUROCODE_PROJECT_DIR,
+            env: process.env,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          })
+        : spawnSync("elixir", elixirArgs, {
+            cwd: process.env.OUROCODE_PROJECT_DIR,
+            env: process.env,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+
+    fs.rmSync(scriptDir, { recursive: true, force: true });
 
     process.stdout.write(child.stdout || "");
     process.stderr.write(child.stderr || "");
+    if (child.error) process.stderr.write(child.error.message + "\\n");
     process.exit(child.status ?? 1);
     """
   end
