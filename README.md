@@ -22,30 +22,53 @@ The current release is optimized for local macOS development and guided workflow
 
 ## Quick Start
 
-Install the latest prerelease build:
+Install the latest prerelease build on macOS or Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
 ```
 
+Install a Windows release from PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
+```
+
 Then run:
 
-```bash
+```text
 ourocode
+ourocode --version
 ```
 
 With no arguments, `ourocode` uses the current working directory as the project
 directory. Pass `--project-dir PATH` (or set `OUROCODE_PROJECT_DIR`) to point it
 elsewhere.
 
-### Requirements
+### Requirements For Running Ourocode
 
 The bundled `ourocode` is an Erlang escript, so it needs the **Erlang/OTP
-runtime** (`escript`/`erl`) on your `PATH`. The installer installs it
-best-effort (Homebrew on macOS, `apt`/`dnf` on Linux); if that is not possible
-it stops with manual instructions. Install it yourself with `brew install
-erlang`, `sudo apt-get install erlang`, or `sudo dnf install erlang`. Set
-`OUROCODE_SKIP_ERLANG=1` to bypass the check.
+runtime** (`escript`/`erl`) on your `PATH`.
+
+Windows users need:
+
+- Windows 10/11, Windows Server 2019, or Windows Server 2022.
+- Windows PowerShell 5.1 or PowerShell 7+.
+- Erlang/OTP with `erl.exe` and `escript.exe` available on `PATH`.
+
+Check the Windows runtime prerequisites:
+
+```powershell
+$PSVersionTable.PSVersion
+Get-Command escript.exe
+erl -eval "erlang:display(erlang:system_info(otp_release)), halt()." -noshell
+```
+
+macOS and Linux users need Erlang/OTP with `escript` and `erl` on `PATH`. The
+Unix installer installs it best-effort (Homebrew on macOS, `apt`/`dnf` on
+Linux); if that is not possible it stops with manual instructions. Install it
+yourself with `brew install erlang`, `sudo apt-get install erlang`, or `sudo dnf
+install erlang`. Set `OUROCODE_SKIP_ERLANG=1` to bypass the check on Unix.
 
 Optional model backends:
 
@@ -102,7 +125,7 @@ Ctrl-G          show active key help
 
 ## Install Locally
 
-Install from GitHub without cloning:
+Install from GitHub without cloning on macOS or Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
@@ -114,6 +137,61 @@ ourocode
 When run from a source checkout, the same installer uses bundled release binaries if present, or builds from source when needed. Set `OUROCODE_BUILD_FROM_SOURCE=1` to force a local build.
 
 Set `OUROCODE_SKIP_OUROBOROS=1` to skip the best-effort Ouroboros install step.
+
+### Windows PowerShell Install
+
+The Windows path uses PowerShell only. It does not require Bash, Git Bash, WSL,
+`tar`, `chmod`, or a permanent execution-policy change.
+
+Final-user prerequisites:
+
+- Windows 10/11, Windows Server 2019, or Windows Server 2022.
+- Windows PowerShell 5.1 or PowerShell 7+.
+- Erlang/OTP on `PATH`, including `erl.exe` and `escript.exe`.
+
+Verify prerequisites before installing:
+
+```powershell
+$PSVersionTable.PSVersion
+Get-Command escript.exe
+erl -eval "erlang:display(erlang:system_info(otp_release)), halt()." -noshell
+```
+
+Install a release:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
+ourocode --version
+```
+
+`-ExecutionPolicy Bypass` applies only to that process. The installer does not
+change the machine or user execution policy permanently.
+
+When downloading a release, the installer downloads the matching `.sha256`
+sidecar and verifies the zip before installing. For a local zip, pass `-Sha256`
+with the expected hash or keep the `.zip.sha256` sidecar next to the zip. It writes the selected version under
+`%LOCALAPPDATA%\Ourocode\<version>`, creates the launcher in
+`%LOCALAPPDATA%\Ourocode\bin`, and updates the user `PATH` so new PowerShell or
+`cmd.exe` windows can run `ourocode`. If the current shell was open before
+install, restart the shell or refresh `PATH` before running the launcher.
+
+Uninstall all Windows versions and remove the launcher/PATH entry:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1 -AllVersions
+```
+
+Then rerun the installer. This install/uninstall loop is safe to repeat:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1 -AllVersions
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
+```
+
+If a Windows build does not include `ourocode_tty.exe`, Ourocode still starts
+through the escript launcher and reports the reduced TUI helper capability
+instead of requiring Bash or WSL.
 
 ## Package A Release
 
@@ -156,6 +234,25 @@ brew install ourocode
 ```
 
 Longer term, Ourocode should move toward a single self-contained binary or app bundle so users do not need to install Elixir/Rust just to run it.
+
+### Windows Release Builder Prerequisites
+
+Developers and release builders need the final-user prerequisites plus:
+
+- Git.
+- Erlang/OTP.
+- Elixir and Mix.
+- Rust stable with the MSVC target for the release architecture.
+- Microsoft C++ Build Tools / MSVC Build Tools.
+
+Build a Windows release zip:
+
+```powershell
+.\scripts\package-windows.ps1 -Version <version>
+```
+
+The Windows package command emits `dist\ourocode-v<version>-windows-x64.zip`
+and a `.sha256` file for checksum verification by the PowerShell installer.
 
 ## Architecture
 

@@ -44,11 +44,39 @@ defmodule Ourocode.Terminal.TuiDriverSession do
   end
 
   @spec next_chunk(pid(), non_neg_integer()) ::
-          {:ok, binary()} | :tick | :eof
+          {:ok, binary()}
+          | {:resize, {pos_integer(), pos_integer()}}
+          | {:control, :redraw}
+          | :tick
+          | :eof
   def next_chunk(state, poll_ms \\ @poll_ms) when is_pid(state) do
     case TuiState.take_inbuf(state) do
       "" ->
         case TtyDriver.next_chunk(TuiState.port(state), poll_ms) do
+          {:ok, raw, rest} ->
+            TuiState.put_inbuf(state, rest)
+            {:ok, raw}
+
+          {:resize, size, rest} ->
+            TuiState.put_inbuf(state, rest)
+            TuiState.put_size(state, size)
+            {:resize, size}
+
+          {:resize, size} ->
+            TuiState.put_size(state, size)
+            {:resize, size}
+
+          {:control, :redraw, rest} ->
+            TuiState.put_inbuf(state, rest)
+            {:control, :redraw}
+
+          {:control, :redraw} ->
+            {:control, :redraw}
+
+          {:ignore, rest} ->
+            TuiState.put_inbuf(state, rest)
+            :tick
+
           {:file_cache_ready, files} ->
             TuiState.put_file_cache(state, files)
             :tick
@@ -58,8 +86,29 @@ defmodule Ourocode.Terminal.TuiDriverSession do
         end
 
       buffered ->
-        {:ok, buffered}
+        apply_decoded_chunk(state, TtyDriver.decode_chunk(buffered))
     end
+  end
+
+  defp apply_decoded_chunk(state, {:ok, raw, rest}) do
+    TuiState.put_inbuf(state, rest)
+    {:ok, raw}
+  end
+
+  defp apply_decoded_chunk(state, {:resize, size, rest}) do
+    TuiState.put_inbuf(state, rest)
+    TuiState.put_size(state, size)
+    {:resize, size}
+  end
+
+  defp apply_decoded_chunk(state, {:control, :redraw, rest}) do
+    TuiState.put_inbuf(state, rest)
+    {:control, :redraw}
+  end
+
+  defp apply_decoded_chunk(state, {:ignore, rest}) do
+    TuiState.put_inbuf(state, rest)
+    :tick
   end
 
   @spec refresh_size(pid()) :: {pos_integer(), pos_integer()}

@@ -71,6 +71,26 @@ defmodule Ourocode.Terminal.TuiLoginTest do
     end
   end
 
+  test "windows login opens device URL through the Windows URL handler" do
+    assert TuiLogin.open_url_command(
+             "https://auth.openai.com/codex/device",
+             {:win32, :nt},
+             fn _name -> nil end
+           ) ==
+             {"rundll32.exe",
+              ["url.dll,FileProtocolHandler", "https://auth.openai.com/codex/device"]}
+  end
+
+  test "windows login copies device code through PowerShell clipboard" do
+    assert TuiLogin.windows_clipboard_command("J46LBMDBT", {:win32, :nt}, fn
+             "powershell.exe" -> "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+             _name -> nil
+           end) ==
+             {"C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+              ["-NoProfile", "-Command", "Set-Clipboard -Value $env:OUROCODE_CLIPBOARD_TEXT"],
+              [{"OUROCODE_CLIPBOARD_TEXT", "J46LBMDBT"}]}
+  end
+
   test "claude login arms a pending paste step with the Claude Code authorize URL" do
     with_tmp_home(fn ->
       state = TuiState.start_link()

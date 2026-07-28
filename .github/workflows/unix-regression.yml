@@ -1,0 +1,47 @@
+name: Unix regression smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/unix-regression.yml"
+      - "lib/ourocode/terminal/**"
+      - "test/ourocode/terminal/**"
+      - "rust/ourocode_ipc/**"
+      - "mix.exs"
+      - "mix.lock"
+      - "scripts/package.sh"
+  workflow_dispatch:
+
+jobs:
+  tui-helper:
+    name: ${{ matrix.os }} tty helper
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Fetch Mix dependencies
+        run: mix deps.get
+
+      - name: Build Unix tty helper
+        run: cargo build --release --manifest-path rust/ourocode_ipc/Cargo.toml --bin ourocode_tty
+
+      - name: Test Rust IPC crate
+        run: cargo test --manifest-path rust/ourocode_ipc/Cargo.toml
+
+      - name: Test terminal helper discovery
+        run: mix test test/ourocode/terminal/tty_driver_test.exs
+
+      - name: Package Unix release asset
+        run: ./scripts/package.sh

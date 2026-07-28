@@ -189,6 +189,35 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     refute_received :unexpected_answer
   end
 
+  test "ooo enter during an active interview dispatches the workflow instead of answering", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.edit_buffer(state, %{key: :paste, char: "ooo pm build onboarding"})
+
+    result = %{
+      pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end,
+      wonder_answer: fn _payload ->
+        send(self(), :unexpected_answer)
+        {:ok, %{}}
+      end
+    }
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :enter}],
+             result,
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == {:submit, "ooo pm build onboarding"}
+
+    assert_received {:handle_enter, "ooo pm build onboarding", 80, 24}
+    refute_received :unexpected_answer
+  end
+
   test "slash input during active interview stays in composer instead of opening palette", %{
     callbacks: callbacks,
     output: output,

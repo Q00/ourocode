@@ -64,7 +64,7 @@ defmodule Ourocode.Terminal.TuiInputLoop do
 
       TuiInteraction.capturing?(result, state) and
         match?(%{key: k} when k in [:enter, :escape], event) and
-          not slash_submit?(event, state) ->
+          not command_submit?(event, state) ->
         TuiInteraction.handle_event(event, result, output, state)
         draw.()
         cont.()
@@ -121,6 +121,15 @@ defmodule Ourocode.Terminal.TuiInputLoop do
           :continue -> read_key_loop(result, output, state, callbacks)
         end
 
+      {:resize, {columns, rows}} ->
+        redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
+        read_key_loop(result, output, state, callbacks)
+
+      {:control, :redraw} ->
+        {columns, rows} = TuiState.size(state)
+        redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
+        read_key_loop(result, output, state, callbacks)
+
       {:ok, chunk} ->
         {columns, rows} = TuiDriverSession.refresh_size(state)
         {events, leftover} = KeyReader.decode(TuiState.take_leftover(state) <> chunk)
@@ -149,14 +158,18 @@ defmodule Ourocode.Terminal.TuiInputLoop do
     })
   end
 
-  defp slash_submit?(%{key: :enter}, state) do
+  defp command_submit?(%{key: :enter}, state) do
     state
     |> TuiState.buffer()
     |> String.trim_leading()
-    |> String.starts_with?("/")
+    |> command_like?()
   end
 
-  defp slash_submit?(_event, _state), do: false
+  defp command_submit?(_event, _state), do: false
+
+  defp command_like?("/" <> _rest), do: true
+  defp command_like?("ooo" <> rest), do: rest == "" or String.match?(rest, ~r/^\s/)
+  defp command_like?(_line), do: false
 
   defp pending_cancel_prefix?(result, state) do
     buffer = TuiState.buffer(state)

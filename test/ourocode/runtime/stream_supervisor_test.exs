@@ -6,6 +6,7 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   alias Ourocode.MCP.Transport.StreamableHTTP
   alias Ourocode.Runtime.Stream.{Child, Session, Transport}
   alias Ourocode.Runtime.Stream.Telemetry
+  alias Ourocode.Test.PortPrograms
 
   setup do
     original_stream_mailbox_capacity = Application.get_env(:ourocode, :stream_mailbox_capacity)
@@ -836,14 +837,13 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 100)
     configured_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
     termination_budget_ms = configured_timeout_ms + 500
-    command = System.find_executable("sh")
-    assert is_binary(command)
+    {command, args} = PortPrograms.long_running_command()
 
     port =
       Port.open({:spawn_executable, command}, [
         :binary,
         :exit_status,
-        {:args, ["-c", "while IFS= read -r line; do :; done"]},
+        {:args, args},
         {:line, 65_536}
       ])
 

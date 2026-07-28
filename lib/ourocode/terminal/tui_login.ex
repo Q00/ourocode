@@ -273,11 +273,9 @@ defmodule Ourocode.Terminal.TuiLogin do
     if TuiEnvironment.test_run?() do
       {:error, :test_run}
     else
-      opener = System.find_executable("open") || System.find_executable("xdg-open")
-
-      case opener do
+      case open_url_command(url, :os.type(), &System.find_executable/1) do
         nil -> {:error, :not_found}
-        command -> system_ok(command, [url])
+        {command, args} -> system_ok(command, args)
       end
     end
   rescue
@@ -288,14 +286,50 @@ defmodule Ourocode.Terminal.TuiLogin do
     if TuiEnvironment.test_run?() do
       {:error, :test_run}
     else
-      case clipboard_command() do
-        nil -> {:error, :not_found}
-        command -> copy_with_stdin(command, text)
+      case windows_clipboard_command(text, :os.type(), &System.find_executable/1) do
+        {command, args, env} ->
+          system_ok(command, args, env: env)
+
+        nil ->
+          copy_to_unix_clipboard(text)
       end
     end
   rescue
     exception -> {:error, exception}
   end
+
+  defp copy_to_unix_clipboard(text) do
+    case clipboard_command() do
+      nil -> {:error, :not_found}
+      command -> copy_with_stdin(command, text)
+    end
+  end
+
+  @doc false
+  @spec open_url_command(String.t(), tuple(), (String.t() -> String.t() | nil)) ::
+          {String.t(), [String.t()]} | nil
+  def open_url_command(url, {:win32, _}, _find_executable) do
+    {"rundll32.exe", ["url.dll,FileProtocolHandler", url]}
+  end
+
+  def open_url_command(url, _os_type, find_executable) do
+    case find_executable.("open") || find_executable.("xdg-open") do
+      nil -> nil
+      command -> {command, [url]}
+    end
+  end
+
+  @doc false
+  @spec windows_clipboard_command(String.t(), tuple(), (String.t() -> String.t() | nil)) ::
+          {String.t(), [String.t()], [{String.t(), String.t()}]} | nil
+  def windows_clipboard_command(text, {:win32, _}, find_executable) do
+    command = find_executable.("powershell.exe") || "powershell.exe"
+    args = ["-NoProfile", "-Command", "Set-Clipboard -Value $env:OUROCODE_CLIPBOARD_TEXT"]
+
+    {command, args, [{"OUROCODE_CLIPBOARD_TEXT", text}]}
+  end
+
+  def windows_clipboard_command(_text, _os_type, _find_executable), do: nil
 
   defp clipboard_command do
     System.find_executable("pbcopy") ||

@@ -47,8 +47,12 @@
             Start with a PM interview, clarify the task, approve execution, and keep proof in the terminal.
           </p>
           <div class="hero-actions" id="install">
+            <button class="copy-command" type="button" data-copy="powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version &lt;version&gt;">
+              <span>PowerShell: .\install.ps1 -Version &lt;version&gt;</span>
+              <span class="copy-state">copy</span>
+            </button>
             <button class="copy-command" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash">
-              <span>curl -fsSL .../install.sh | bash</span>
+              <span>Unix: curl -fsSL .../install.sh | bash</span>
               <span class="copy-state">copy</span>
             </button>
             <a class="secondary-action" href="../remote-headless-control.md">Headless JSON</a>
@@ -147,9 +151,30 @@
       <section class="section install-panel">
         <div>
           <p class="eyebrow">install</p>
-          <h2>Run it from a source checkout or release build.</h2>
+          <h2>Install with PowerShell on Windows or Bash on Unix.</h2>
+          <p>
+            Windows uses PowerShell 5.1+ or 7+, Erlang/OTP, and `escript.exe`.
+            Downloaded releases verify the `.sha256` sidecar before install, write to `%LOCALAPPDATA%\Ourocode`,
+            update the user PATH for new shells, and include `uninstall.ps1` for repeatable reinstall cycles.
+            The Windows path does not require Bash, WSL, or a permanent execution-policy change.
+            Release builders also need Git, Elixir/Mix, Rust stable with the MSVC target, and MSVC Build Tools.
+          </p>
         </div>
-        <pre><code>curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
+        <pre><code># Windows final-user checks
+$PSVersionTable.PSVersion
+Get-Command escript.exe
+erl -eval "erlang:display(erlang:system_info(otp_release)), halt()." -noshell
+
+# Windows install
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version &lt;version&gt;
+ourocode --version
+powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1 -AllVersions
+
+# Windows release builder
+.\scripts\package-windows.ps1 -Version &lt;version&gt;
+
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
 ourocode
 ourocode --prompt "/agents" --format json
 ourocode --verify --format json --project-dir .</code></pre>
