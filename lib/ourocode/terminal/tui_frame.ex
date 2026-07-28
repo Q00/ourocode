@@ -169,6 +169,12 @@ defmodule Ourocode.Terminal.TuiFrame do
         else
           nil
         end,
+      search:
+        if mode == :search do
+          TuiState.search_view(state)
+        else
+          nil
+        end,
       file_mentions: TuiCompletions.file_mention_suggestions(state, mode, false)
     }
   end

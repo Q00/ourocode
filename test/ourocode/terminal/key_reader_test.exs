@@ -22,6 +22,10 @@ defmodule Ourocode.Terminal.KeyReaderTest do
     assert {[{:ctrl_d, nil}], ""} = keys(<<4>>)
   end
 
+  test "decodes Ctrl-R as the reverse-search key" do
+    assert {[{:ctrl_r, nil}], ""} = keys(<<18>>)
+  end
+
   test "decodes readline-style editing controls" do
     assert {
              [

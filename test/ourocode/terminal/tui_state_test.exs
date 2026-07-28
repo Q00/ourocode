@@ -99,6 +99,45 @@ defmodule Ourocode.Terminal.TuiStateTest do
     assert TuiState.buffer(state) == "ooo interview"
   end
 
+  test "reverse-i-search finds, walks to older matches, and accepts into the buffer" do
+    state = TuiState.start_link()
+    for line <- ["make test", "ooo auto ship", "git status", "ooo pm design"],
+        do: TuiState.remember_history(state, line)
+
+    # history newest-first: ["ooo pm design", "git status", "ooo auto ship", "make test"]
+    TuiState.edit_buffer(state, %{key: :char, char: "x"})
+    assert :ok = TuiState.enter_search(state)
+    assert TuiState.mode(state) == :search
+
+    TuiState.search_type(state, "ooo")
+    assert TuiState.search_view(state) == %{query: "ooo", match: "ooo pm design"}
+
+    assert :ok = TuiState.search_older(state)
+    assert TuiState.search_view(state) == %{query: "ooo", match: "ooo auto ship"}
+
+    # No older "ooo" match: search_older is a no-op, the row stays put.
+    TuiState.search_older(state)
+    assert TuiState.search_view(state) == %{query: "ooo", match: "ooo auto ship"}
+
+    assert :ok = TuiState.accept_search(state)
+    assert TuiState.mode(state) == :normal
+    assert TuiState.buffer(state) == "ooo auto ship"
+  end
+
+  test "reverse-i-search cancel restores the buffer that was there on entry" do
+    state = TuiState.start_link()
+    TuiState.remember_history(state, "ooo pm design")
+    TuiState.edit_buffer(state, %{key: :char, char: "x"})
+
+    TuiState.enter_search(state)
+    TuiState.search_type(state, "pm")
+    assert TuiState.search_view(state).match == "ooo pm design"
+
+    assert :ok = TuiState.cancel_search(state)
+    assert TuiState.mode(state) == :normal
+    assert TuiState.buffer(state) == "x"
+  end
+
   test "escape clear arms first and clears input on second press" do
     state = TuiState.start_link()
     TuiState.edit_buffer(state, %{key: :char, char: "x"})

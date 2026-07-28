@@ -10,6 +10,7 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
     TuiNormalSubmit,
     TuiCompletions,
     TuiPalette,
+    TuiSearchEvent,
     TuiState
   }
 
@@ -42,6 +43,14 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
 
       {:model, model_event} ->
         TuiModelEvent.handle(model_event, state, callbacks, draw, cont)
+
+      {:search, search_event} ->
+        TuiSearchEvent.handle(search_event, state, callbacks, draw, cont)
+
+      {:normal, %{key: :ctrl_r}} ->
+        TuiState.enter_search(state)
+        draw.()
+        cont.()
 
       {:normal, %{key: :tab}} ->
         handle_tab(state, callbacks, draw, cont)

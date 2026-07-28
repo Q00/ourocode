@@ -27,6 +27,7 @@ defmodule Ourocode.Terminal.KeyReader do
           | :ctrl_k
           | :ctrl_n
           | :ctrl_p
+          | :ctrl_r
           | :ctrl_u
           | :ctrl_w
           | :ctrl_y
@@ -84,6 +85,7 @@ defmodule Ourocode.Terminal.KeyReader do
   defp decode(<<11, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_k) | acc])
   defp decode(<<14, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_n) | acc])
   defp decode(<<16, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_p) | acc])
+  defp decode(<<18, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_r) | acc])
   defp decode(<<21, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_u) | acc])
   defp decode(<<23, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_w) | acc])
   defp decode(<<25, rest::binary>>, acc), do: decode(rest, [KeyEvent.key(:ctrl_y) | acc])

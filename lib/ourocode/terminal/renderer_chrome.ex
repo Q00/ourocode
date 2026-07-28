@@ -38,6 +38,10 @@ defmodule Ourocode.Terminal.RendererChrome do
   end
 
   @spec draw_composer(map(), pos_integer(), integer(), String.t(), atom(), map()) :: map()
+  def draw_composer(screen, width, rule_row, _prompt_buffer, :search, opts) do
+    draw_search(screen, width, rule_row, Map.get(opts, :search) || %{})
+  end
+
   def draw_composer(screen, width, rule_row, prompt_buffer, mode, opts) do
     hud = HudModel.build(%{}, [], mode, opts, width)
 
@@ -139,6 +143,32 @@ defmodule Ourocode.Terminal.RendererChrome do
     |> Screen.put_text(x, y, lead, :text)
     |> Screen.put_text(x + lead_w, y, token, token_style)
     |> Screen.put_text(x + lead_w + token_w, y, rest, :text)
+  end
+
+  # Reverse-i-search line: "(reverse-i-search)`query`: match". The query is
+  # painted in the accent colour and the matched entry in a strong tone; a
+  # missing match reads "(no match)" so the row never looks blank.
+  defp draw_search(screen, width, rule_row, search) do
+    {result_text, result_style} =
+      case Map.get(search, :match) do
+        nil -> {"(no match)", :dim}
+        entry -> {entry, :strong}
+      end
+
+    segments = [
+      {"(reverse-i-search)`", :dim},
+      {Map.get(search, :query, ""), :accent},
+      {"`: ", :dim},
+      {result_text, result_style}
+    ]
+
+    {screen, _x} =
+      Enum.reduce(segments, {screen, @left}, fn {text, style}, {acc, x} ->
+        clipped = clip(text, max(width - x - @left, 0))
+        {Screen.put_text(acc, x, rule_row + 1, clipped, style), x + Screen.text_width(clipped)}
+      end)
+
+    screen
   end
 
   defp activity_dot(kv, opts) do

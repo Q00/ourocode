@@ -5,6 +5,7 @@ defmodule Ourocode.Terminal.TuiState do
 
   alias Ourocode.Terminal.{
     HistoryNavigation,
+    HistorySearch,
     Notifications,
     PromptStore,
     TuiFileCache,
@@ -270,6 +271,7 @@ defmodule Ourocode.Terminal.TuiState do
             cursor: 0,
             history_index: 0,
             history_draft: nil,
+            history_prefix: nil,
             esc_armed_until: nil
           })
           |> Notifications.push("input cleared", now, 1_000)
@@ -299,6 +301,91 @@ defmodule Ourocode.Terminal.TuiState do
 
   @spec reset_history_cursor(pid()) :: :ok
   def reset_history_cursor(state), do: Agent.update(state, &HistoryNavigation.reset/1)
+
+  # --- reverse-i-search (Ctrl-R) -------------------------------------------
+
+  @spec enter_search(pid()) :: :ok
+  def enter_search(state) do
+    Agent.update(state, fn s ->
+      %{s | mode: :search, search_query: "", search_skip: 0, search_origin_buffer: s.buffer}
+    end)
+  end
+
+  @spec search_view(pid()) :: %{query: String.t(), match: String.t() | nil}
+  def search_view(state) do
+    Agent.get(state, fn s ->
+      query = Map.get(s, :search_query, "")
+      match = HistorySearch.find(Map.get(s, :history, []), query, Map.get(s, :search_skip, 0))
+      %{query: query, match: match_entry(match)}
+    end)
+  end
+
+  @spec search_type(pid(), String.t()) :: :ok
+  def search_type(state, char) when is_binary(char) do
+    Agent.update(state, fn s ->
+      %{s | search_query: Map.get(s, :search_query, "") <> char, search_skip: 0}
+    end)
+  end
+
+  @spec search_backspace(pid()) :: :ok
+  def search_backspace(state) do
+    Agent.update(state, fn s ->
+      query = Map.get(s, :search_query, "")
+      trimmed = String.slice(query, 0, max(String.length(query) - 1, 0))
+      %{s | search_query: trimmed, search_skip: 0}
+    end)
+  end
+
+  @spec search_older(pid()) :: :ok
+  def search_older(state) do
+    Agent.update(state, fn s ->
+      query = Map.get(s, :search_query, "")
+      next = Map.get(s, :search_skip, 0) + 1
+      # Only advance when an older match exists, so Ctrl-R never blanks the row.
+      case HistorySearch.find(Map.get(s, :history, []), query, next) do
+        :none -> s
+        _match -> %{s | search_skip: next}
+      end
+    end)
+  end
+
+  @spec accept_search(pid()) :: :ok
+  def accept_search(state) do
+    Agent.update(state, fn s ->
+      query = Map.get(s, :search_query, "")
+
+      buffer =
+        case HistorySearch.find(Map.get(s, :history, []), query, Map.get(s, :search_skip, 0)) do
+          {entry, _index} -> entry
+          :none -> Map.get(s, :search_origin_buffer) || ""
+        end
+
+      exit_search(s, buffer)
+    end)
+  end
+
+  @spec cancel_search(pid()) :: :ok
+  def cancel_search(state) do
+    Agent.update(state, fn s -> exit_search(s, Map.get(s, :search_origin_buffer) || "") end)
+  end
+
+  defp exit_search(s, buffer) do
+    %{
+      s
+      | mode: :normal,
+        buffer: buffer,
+        cursor: String.length(buffer),
+        search_query: "",
+        search_skip: 0,
+        search_origin_buffer: nil,
+        history_index: 0,
+        history_draft: nil,
+        history_prefix: nil
+    }
+  end
+
+  defp match_entry({entry, _index}), do: entry
+  defp match_entry(:none), do: nil
 
   @spec take_buffer(pid()) :: String.t()
   def take_buffer(state) do

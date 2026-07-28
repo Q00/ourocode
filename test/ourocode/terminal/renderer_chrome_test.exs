@@ -94,6 +94,30 @@ defmodule Ourocode.Terminal.RendererChromeTest do
     refute ansi =~ ScreenStyles.sgr(:command, :dark)
   end
 
+  test "draw_composer renders the reverse-i-search line with the query and match" do
+    text =
+      60
+      |> Screen.new(8)
+      |> RendererChrome.draw_composer(60, 4, "", :search, %{
+        search: %{query: "pm", match: "ooo pm design"}
+      })
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "(reverse-i-search)`pm`: ooo pm design"
+  end
+
+  test "draw_composer shows (no match) when reverse-i-search has no hit" do
+    text =
+      60
+      |> Screen.new(8)
+      |> RendererChrome.draw_composer(60, 4, "", :search, %{search: %{query: "zzz", match: nil}})
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "(reverse-i-search)`zzz`: (no match)"
+  end
+
   test "draw_composer uses richer entry placeholder on narrow terminals" do
     text =
       60
