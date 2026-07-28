@@ -65,6 +65,7 @@ defmodule Ourocode.Terminal.Tui do
             |> Map.put(:output, output)
             |> Map.put(:read_line, read_line)
             |> Map.put(:prompt, @prompt)
+            |> Map.put(:tui_state, state)
             |> attach_live_turn_feedback(state)
             |> attach_active_model_provider(state)
 

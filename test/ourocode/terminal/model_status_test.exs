@@ -54,6 +54,16 @@ defmodule Ourocode.Terminal.ModelStatusTest do
     assert ModelStatus.auth_label(nil) == {"no model  -  /model", :dim}
   end
 
+  test "hud_status separates provider and model slug with optional latency" do
+    codex = model(:codex, "codex  (ChatGPT)")
+
+    assert ModelStatus.hud_status(codex, "gpt-5.3-codex", 1_234) ==
+             "provider: codex  (ChatGPT)  model: gpt-5.3-codex · 1.2s"
+
+    assert ModelStatus.hud_status(codex, "", 42) == "provider: codex  (ChatGPT) · 42ms"
+    assert ModelStatus.hud_status(codex, nil, nil) == "provider: codex  (ChatGPT)"
+  end
+
   defp model(id, label, status \\ :ready) do
     %Model{
       id: id,

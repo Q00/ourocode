@@ -27,6 +27,18 @@ defmodule Ourocode.Model.ConversationTest do
     assert second == "and the tty layer?"
   end
 
+  test "render_prompt normalizes CRLF transcript boundaries without losing content" do
+    conversation =
+      Conversation.new()
+      |> Conversation.add_turn("first line\r\nsecond line", "answer line\r\nnext answer")
+
+    prompt = Conversation.render_prompt(conversation, "current line\r\nnext current")
+
+    refute prompt =~ "\r"
+    assert prompt =~ "user: first line\nsecond line\nassistant: answer line\nnext answer"
+    assert prompt =~ "## Current message\ncurrent line\nnext current"
+  end
+
   test "render_prompt keeps a contiguous recent window under the byte budget" do
     big = String.duplicate("a", 3_000)
 
@@ -61,6 +73,7 @@ defmodule Ourocode.Model.ConversationTest do
       |> Conversation.add_turn("다시", "응답")
 
     listed = Conversation.to_list(conversation)
+
     assert listed == [
              %{"user" => "ping", "assistant" => "pong"},
              %{"user" => "다시", "assistant" => "응답"}

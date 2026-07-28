@@ -50,6 +50,22 @@ defmodule Ourocode.Model.ProfileTest do
     assert profile.llm_backend == "gemini"
   end
 
+  test "prefers the active model instance when it is a ready profile candidate" do
+    active = model(:codex, "codex fake runner", :ready)
+
+    profile =
+      Profile.for_route(:pm,
+        active_model: active,
+        models: [
+          model(:claude_api, "claude api", :unavailable),
+          model(:codex, "catalog codex", :ready)
+        ]
+      )
+
+    assert profile.model == active
+    assert profile.model_label == "codex fake runner"
+  end
+
   test "display label uses product-facing role language" do
     assert Profile.display_label(%{label: "execute/codex", model_label: "codex  (ChatGPT)"}) ==
              "Execute · Codex Runtime"

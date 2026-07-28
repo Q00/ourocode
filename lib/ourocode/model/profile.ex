@@ -136,12 +136,19 @@ defmodule Ourocode.Model.Profile do
   defp runtime_name(_label, model_label), do: short_model_label(model_label)
 
   defp pick_model(models, candidates, active_model, opts) do
-    ready_candidate(models, candidates) ||
+    ready_active_candidate(active_model, candidates) ||
+      ready_candidate(models, candidates) ||
       ready_active(active_model) ||
       selectable_candidate(models, candidates) ||
       active_model(active_model) ||
       Keyword.get_lazy(opts, :default_model, &Catalog.default/0)
   end
+
+  defp ready_active_candidate(%Model{id: id} = model, candidates) do
+    if id in candidates and Model.ready?(model), do: model
+  end
+
+  defp ready_active_candidate(_model, _candidates), do: nil
 
   defp ready_candidate(models, candidates) do
     Enum.find_value(candidates, fn id ->

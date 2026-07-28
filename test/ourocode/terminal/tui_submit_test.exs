@@ -16,10 +16,44 @@ defmodule Ourocode.Terminal.TuiSubmitTest do
     %{output: output, state: state}
   end
 
-  test "handle opens model picker for model commands", %{output: output, state: state} do
+  test "handle opens provider picker for provider commands", %{output: output, state: state} do
     callbacks = callbacks(self())
 
-    assert :continue = TuiSubmit.handle("/model", %{}, output, state, 80, 24, callbacks)
+    assert :continue = TuiSubmit.handle("/provider", %{}, output, state, 80, 24, callbacks)
+    assert TuiState.mode(state) == :model
+    assert TuiState.pidx(state) == 0
+    assert_receive {:redraw, "", 80, 24}
+
+    TuiState.put_mode(state, :normal)
+    TuiState.put_pidx(state, 3)
+
+    assert :continue = TuiSubmit.handle("/providers", %{}, output, state, 100, 30, callbacks)
+    assert TuiState.mode(state) == :model
+    assert TuiState.pidx(state) == 0
+    assert_receive {:redraw, "", 100, 30}
+  end
+
+  test "handle leaves model commands on slash command dispatch", %{output: output, state: state} do
+    callbacks = callbacks(self())
+    TuiState.put_mode(state, :normal)
+    TuiState.put_pidx(state, 3)
+
+    for line <- ["/model", "/models", "/model bad"] do
+      assert {:submit, ^line} = TuiSubmit.handle(line, %{}, output, state, 80, 24, callbacks)
+      assert TuiState.mode(state) == :normal
+      assert TuiState.pidx(state) == 3
+      refute_received {:redraw, "", 80, 24}
+    end
+  end
+
+  test "handle login still opens provider picker for auth selection", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+    TuiState.put_pidx(state, 5)
+
+    assert :continue = TuiSubmit.handle("/login", %{}, output, state, 80, 24, callbacks)
     assert TuiState.mode(state) == :model
     assert TuiState.pidx(state) == 0
     assert_receive {:redraw, "", 80, 24}

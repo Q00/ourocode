@@ -74,6 +74,32 @@ defmodule Ourocode.Model.CatalogTest do
     assert Model.ready?(inn)
   end
 
+  test "codex model slug catalog is separate from provider backend ids" do
+    slugs = Catalog.provider_model_slugs(:codex)
+
+    assert Enum.map(slugs, & &1.provider_id) == [:codex, :codex]
+    assert Enum.map(slugs, & &1.slug) == ["gpt-5.5", "gpt-5.3-codex"]
+    assert Catalog.default_provider_model_slug(:codex) == "gpt-5.5"
+    assert Catalog.fetch_provider_model_slug(:codex, " gpt-5.5 ").slug == "gpt-5.5"
+    refute Catalog.fetch_provider_model_slug(:codex, "codex")
+  end
+
+  test "provider model slug validation accepts explicit custom test slugs only when requested" do
+    assert {:ok, "gpt-5.5"} = Catalog.validate_provider_model_slug(:codex, " gpt-5.5 ")
+
+    assert {:ok, "test-codex-model"} =
+             Catalog.validate_provider_model_slug(:codex, " test-codex-model ",
+               allow_custom?: true
+             )
+
+    assert {:error, :blank_slug} = Catalog.validate_provider_model_slug(:codex, "   ")
+    assert {:error, :invalid_slug} = Catalog.validate_provider_model_slug(:codex, 123)
+    assert {:error, :unknown_provider} = Catalog.validate_provider_model_slug(:unknown, "gpt-5.5")
+
+    assert {:error, :unknown_slug} =
+             Catalog.validate_provider_model_slug(:codex, "test-codex-model")
+  end
+
   test "default can use remaining non-agent CLIs, else falls back to codex" do
     with_cli =
       Catalog.default(
@@ -169,31 +195,48 @@ defmodule Ourocode.Model.CatalogTest do
   test "cli runner replays conversation history into the one-shot prompt" do
     alias Ourocode.Model.Conversation
 
-    dir =
-      Path.join(System.tmp_dir!(), "ourocode-catalog-cli-#{System.unique_integer([:positive])}")
+    parent = self()
+    which = fn bin -> if bin == "gemini", do: "gemini-test-bin", else: nil end
 
-    on_exit(fn -> File.rm_rf!(dir) end)
-    File.mkdir_p!(dir)
+    cli_stream = fn id, prompt, opts, on_chunk ->
+      send(parent, {:cli_stream, id, prompt, opts})
+      on_chunk.(prompt)
+      {:ok, prompt}
+    end
 
-    # Echoes its prompt argument back, standing in for `gemini -p <prompt>`.
-    script = Path.join(dir, "gemini")
-    File.write!(script, "#!/bin/sh\nprintf '%s' \"$2\"\n")
-    File.chmod!(script, 0o755)
-
-    which = fn bin -> if bin == "gemini", do: script, else: nil end
-    gemini = Catalog.fetch(Catalog.list(codex_signed_in: false, which: which), :gemini)
+    gemini =
+      Catalog.fetch(
+        Catalog.list(codex_signed_in: false, which: which, cli_stream: cli_stream),
+        :gemini
+      )
 
     conversation = Conversation.add_turn(Conversation.new(), "first question", "first answer")
 
     assert {:ok, echoed} =
-             Model.stream(gemini, "follow-up", [history: conversation], fn _chunk -> :ok end)
+             Model.stream(gemini, "follow-up", [history: conversation], fn chunk ->
+               send(parent, {:chunk, :follow_up, chunk})
+             end)
+
+    assert_received {:cli_stream, :gemini, ^echoed, opts}
+    refute Keyword.has_key?(opts, :history)
+    assert Keyword.fetch!(opts, :which).("gemini") == "gemini-test-bin"
+    assert_received {:chunk, :follow_up, ^echoed}
+
+    echoed = String.replace(echoed, "\r\n", "\n")
 
     assert echoed =~ "user: first question\nassistant: first answer"
     assert echoed =~ "## Current message\nfollow-up"
 
     # An empty conversation leaves the first turn byte-identical.
     assert {:ok, "plain"} =
-             Model.stream(gemini, "plain", [history: Conversation.new()], fn _chunk -> :ok end)
+             Model.stream(gemini, "plain", [history: Conversation.new()], fn chunk ->
+               send(parent, {:chunk, :plain, chunk})
+             end)
+
+    assert_received {:cli_stream, :gemini, "plain", plain_opts}
+    refute Keyword.has_key?(plain_opts, :history)
+    assert Keyword.fetch!(plain_opts, :which).("gemini") == "gemini-test-bin"
+    assert_received {:chunk, :plain, "plain"}
   end
 
   test "stream dispatches through the model's runner" do

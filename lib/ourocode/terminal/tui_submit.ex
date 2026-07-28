@@ -19,8 +19,8 @@ defmodule Ourocode.Terminal.TuiSubmit do
   def handle("", _result, _output, _state, _cols, _rows, _callbacks), do: :continue
 
   def handle("/login", result, output, state, cols, rows, callbacks) do
-    # Open the backend picker so the user chooses what to sign into; picking
-    # a not-ready OAuth backend (Codex or Claude) starts its login.
+    # Open the provider picker so the user chooses what to sign into; picking
+    # a not-ready OAuth provider (Codex or Claude) starts its login.
     TuiState.put_mode(state, :model)
     TuiState.put_pidx(state, 0)
     redraw(callbacks).(result, output, state, "", cols, rows)
@@ -66,7 +66,7 @@ defmodule Ourocode.Terminal.TuiSubmit do
   def handle("/quit", _result, _output, _state, _cols, _rows, _callbacks), do: :exit
 
   def handle(line, result, output, state, cols, rows, callbacks)
-      when line in ["/model", "/models"] do
+      when line in ["/provider", "/providers"] do
     TuiState.put_mode(state, :model)
     TuiState.put_pidx(state, 0)
     redraw(callbacks).(result, output, state, "", cols, rows)

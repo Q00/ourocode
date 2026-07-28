@@ -13,11 +13,22 @@ defmodule Ourocode.Terminal.TuiModelSelectionTest do
     assert TuiModelSelection.selected([], 10) == nil
   end
 
-  test "choose stores ready model selection, logs it, and closes model mode" do
+  test "choose stores ready provider selection, invalidates cache, logs it, and closes picker mode" do
     state = TuiState.start_link()
     TuiState.put_mode(state, :model)
     TuiState.put_pidx(state, 1)
     {:ok, output} = StringIO.open("")
+
+    Agent.update(state, fn current ->
+      %{
+        current
+        | model_cache: %{
+            id: :alpha,
+            expires_at: System.monotonic_time(:millisecond) + 60_000,
+            model: model(:alpha, "alpha")
+          }
+      }
+    end)
 
     TuiModelSelection.choose(%{}, output, state, 80, 24,
       models: [model(:alpha, "alpha"), model(:bravo, "bravo")],
@@ -28,8 +39,9 @@ defmodule Ourocode.Terminal.TuiModelSelectionTest do
     {_input, captured} = StringIO.contents(output)
     current = Agent.get(state, & &1)
 
-    assert captured =~ "model: bravo"
+    assert captured =~ "provider: bravo"
     assert current.model_id == :bravo
+    assert current.model_cache == nil
     assert current.mode == :normal
     assert current.pidx == 0
   end

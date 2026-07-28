@@ -216,12 +216,20 @@ defmodule Ourocode.Command.Registry.Builtin do
       run_spec: %{kind: :builtin_action, action: :show_config}
     },
     %{
+      name: "provider",
+      slash: "/provider",
+      aliases: ["/providers"],
+      category: :runtime,
+      summary: "Pick the active main-session provider/backend.",
+      run_spec: %{kind: :builtin_action, action: :select_provider}
+    },
+    %{
       name: "model",
       slash: "/model",
       aliases: ["/models"],
       category: :runtime,
-      summary: "Pick the active main-session backend (detected models).",
-      run_spec: %{kind: :builtin_action, action: :select_model}
+      summary: "Show provider-specific model commands and slug selection status.",
+      run_spec: %{kind: :builtin_action, action: :show_model_commands}
     },
     %{
       name: "theme",

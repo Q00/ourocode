@@ -28,7 +28,7 @@ defmodule Ourocode.Terminal.CommandActionDispatcher do
         CommandPreflightCommands.render(action, command_event, state, registry)
 
       CommandModelCommands.handles?(action) ->
-        CommandModelCommands.render(action, state)
+        CommandModelCommands.render(action, command_event, state)
 
       CommandStatusCommands.handles?(action) ->
         CommandStatusCommands.render(action, state)

@@ -1,6 +1,6 @@
 defmodule Ourocode.Terminal.TuiModelSelection do
   @moduledoc """
-  Model selection, active-model cache, and model-picker actions for the raw TUI.
+  Provider selection, active-model cache, and provider-picker actions for the raw TUI.
   """
 
   alias Ourocode.Model
@@ -59,7 +59,7 @@ defmodule Ourocode.Terminal.TuiModelSelection do
 
       Model.ready?(selected_model) ->
         TuiState.put_model_id(state, selected_model.id)
-        log.(output, "model: #{selected_model.label}")
+        log.(output, "provider: #{selected_model.label}")
         redraw.(result, output, state, "", cols, rows)
 
       Model.needs_auth?(selected_model) ->

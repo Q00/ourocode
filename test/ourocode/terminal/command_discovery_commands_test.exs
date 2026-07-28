@@ -51,8 +51,32 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     assert text =~ "/theme"
     refute text =~ "/mcps"
     assert text =~ "/sandbox"
+    assert text =~ "/provider"
+    assert text =~ "Pick the active main-session provider/backend."
+    assert text =~ "/model"
+    assert text =~ "Show provider-specific model commands and slug selection status."
+    refute text =~ "/model              Pick the active main-session provider/backend."
     refute text =~ "[builtin/discovery]"
     refute text =~ "/wonder-tool"
+  end
+
+  test "rendered help exposes provider picker separately from model selection", %{
+    registry: registry,
+    state: state,
+    output: output
+  } do
+    assert {:ok, %{count: count}} =
+             CommandDiscoveryCommands.render(:show_help, state, registry)
+
+    {_input, text} = StringIO.contents(output)
+
+    assert count > 0
+    assert text =~ "common:"
+    assert text =~ "/provider"
+    assert text =~ "Pick the active main-session provider/backend."
+    assert text =~ "/model"
+    assert text =~ "Show provider-specific model commands and slug selection status."
+    refute text =~ "/model              Pick the active main-session provider/backend."
   end
 
   test "render_registry renders entries and returns count", %{
@@ -69,6 +93,8 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     assert text =~ "/help"
     assert text =~ "commands:"
     refute text =~ "[builtin/discovery]"
+    assert text =~ "/provider"
+    assert text =~ "Pick the active main-session provider/backend."
   end
 
   test "render skills filters skill-capable registry sources", %{

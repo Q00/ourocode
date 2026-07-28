@@ -13,6 +13,8 @@ defmodule Ourocode.Terminal.TuiState do
     WorkspaceNavigation
   }
 
+  alias Ourocode.Model.Catalog
+
   @double_press_ms 800
   @history_limit 50
 
@@ -143,6 +145,43 @@ defmodule Ourocode.Terminal.TuiState do
 
   @spec put_model_id(pid(), atom()) :: :ok
   def put_model_id(state, id), do: Agent.update(state, &%{&1 | model_id: id, model_cache: nil})
+
+  @spec model_id(pid()) :: atom() | nil
+  def model_id(state), do: Agent.get(state, &Map.get(&1, :model_id))
+
+  @spec provider_model_slug(pid(), atom()) :: String.t() | nil
+  def provider_model_slug(state, provider_id) when is_atom(provider_id) do
+    Agent.get(state, fn current ->
+      current
+      |> Map.get(:model_slug_by_provider, %{})
+      |> Map.get(provider_id, Catalog.default_provider_model_slug(provider_id))
+    end)
+  end
+
+  def provider_model_slug(_state, _provider_id), do: nil
+
+  @spec put_provider_model_slug(pid(), atom(), term(), keyword()) ::
+          :ok | {:error, :unknown_provider | :invalid_slug | :blank_slug | :unknown_slug}
+  def put_provider_model_slug(state, provider_id, slug, opts \\ [])
+
+  def put_provider_model_slug(state, provider_id, slug, opts) when is_atom(provider_id) do
+    case Catalog.validate_provider_model_slug(provider_id, slug, opts) do
+      {:ok, normalized} ->
+        Agent.update(state, fn current ->
+          slugs =
+            current
+            |> Map.get(:model_slug_by_provider, %{})
+            |> Map.put(provider_id, normalized)
+
+          %{current | model_slug_by_provider: slugs, model_cache: nil}
+        end)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def put_provider_model_slug(_state, _provider_id, _slug, _opts), do: {:error, :unknown_provider}
 
   @doc "Time to first token of the last completed chat turn, in ms."
   @spec last_turn_ms(pid()) :: non_neg_integer() | nil

@@ -54,9 +54,21 @@ defmodule Ourocode.Terminal.TuiChat do
     model_prompt = maybe_paused_interview_prompt(result, prompt)
     conversation = conversation(result, state)
     stream_opts = [session_id: session_id(result), history: conversation]
+    stream_opts = put_configured_model(stream_opts, model, state)
     started = System.monotonic_time(:millisecond)
 
-    case run_turn(model, model_prompt, stream_opts, started, result, output, state, cols, rows, redraw) do
+    case run_turn(
+           model,
+           model_prompt,
+           stream_opts,
+           started,
+           result,
+           output,
+           state,
+           cols,
+           rows,
+           redraw
+         ) do
       {:ok, full} ->
         # Remember the exchange as the user typed it (not the paused-interview
         # wrapper) so follow-up turns read as a clean dialogue.
@@ -85,7 +97,18 @@ defmodule Ourocode.Terminal.TuiChat do
   # when no chunk has arrived yet, chunks render as they stream in, a bare
   # Esc or Ctrl+C cancels the turn, and keystrokes typed during the turn are
   # re-buffered for the input loop instead of being dropped.
-  defp run_turn(model, model_prompt, stream_opts, started, result, output, state, cols, rows, redraw) do
+  defp run_turn(
+         model,
+         model_prompt,
+         stream_opts,
+         started,
+         result,
+         output,
+         state,
+         cols,
+         rows,
+         redraw
+       ) do
     caller = self()
 
     {pid, ref} =
@@ -152,6 +175,20 @@ defmodule Ourocode.Terminal.TuiChat do
       0 -> :ok
     end
   end
+
+  defp put_configured_model(opts, %Model{id: provider_id}, state) when is_atom(provider_id) do
+    case TuiState.provider_model_slug(state, provider_id) do
+      slug when is_binary(slug) and slug != "" ->
+        opts
+        |> Keyword.put(:model, slug)
+        |> Keyword.put(:model_source, :session)
+
+      _none ->
+        opts
+    end
+  end
+
+  defp put_configured_model(opts, _model, _state), do: opts
 
   # A bare Esc or a Ctrl+C cancels the turn; longer escape sequences (arrow
   # keys and friends) are ordinary input and must not abort the stream.
@@ -220,5 +257,5 @@ defmodule Ourocode.Terminal.TuiChat do
       "ourocode-main"
   end
 
-  defp log(output, text), do: IO.puts(output, text)
+  defp log(output, text), do: IO.puts(output, String.replace_invalid(text, ""))
 end

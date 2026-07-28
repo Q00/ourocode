@@ -13,7 +13,32 @@ defmodule Ourocode.Provider.Codex.Client do
   alias Ourocode.Provider.Codex.Responses
 
   @endpoint "https://chatgpt.com/backend-api/codex/responses"
-  @default_model "gpt-5.3-codex"
+  @default_model "gpt-5.5"
+
+  @doc "Returns the ChatGPT Codex model used when no explicit model is passed."
+  @spec default_model() :: String.t()
+  def default_model, do: env_model() || @default_model
+
+  @doc """
+  Builds the OpenAI Responses API request body using stream model precedence.
+
+  Precedence is explicit unmarked `opts[:model]`, `OUROCODE_CODEX_MODEL`,
+  session/config model (`opts[:model]` with `model_source: :session` or
+  `opts[:configured_model]`), then the built-in Codex fallback.
+  """
+  @spec stream_request_body(String.t(), keyword(), String.t()) :: map()
+  def stream_request_body(prompt, opts, instructions)
+      when is_binary(prompt) and is_list(opts) and is_binary(instructions) do
+    model = stream_model(opts)
+
+    case Keyword.get(opts, :input) do
+      input when is_list(input) and input != [] ->
+        Responses.request_body_for_input(input, model, instructions)
+
+      _none ->
+        request_body(prompt, model, instructions)
+    end
+  end
 
   @doc """
   Streams `prompt`, invoking `on_chunk.(text)` for each output delta.
@@ -27,19 +52,11 @@ defmodule Ourocode.Provider.Codex.Client do
     case Codex.authorization() do
       {:ok, %{access: access, account_id: account_id}} ->
         session_id = Keyword.get(opts, :session_id, "ourocode-main")
-        model = Keyword.get(opts, :model, @default_model)
         instructions = Keyword.get(opts, :instructions, Ourocode.Prompt.system())
 
         # `opts[:input]` carries prepared multi-turn input items (history +
         # current message); without it the prompt is a single user turn.
-        body =
-          case Keyword.get(opts, :input) do
-            input when is_list(input) and input != [] ->
-              Responses.request_body_for_input(input, model, instructions)
-
-            _none ->
-              request_body(prompt, model, instructions)
-          end
+        body = stream_request_body(prompt, opts, instructions)
 
         headers = httpc_headers(Codex.api_headers(access, account_id, session_id))
 
@@ -143,6 +160,41 @@ defmodule Ourocode.Provider.Codex.Client do
   defp httpc_headers(headers) do
     Enum.map(headers, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
   end
+
+  defp stream_model(opts) do
+    opts
+    |> model_candidates()
+    |> Enum.find_value(&present_model/1)
+  end
+
+  defp model_candidates(opts) do
+    if Keyword.get(opts, :model_source) == :session do
+      [
+        env_model(),
+        Keyword.get(opts, :model),
+        Keyword.get(opts, :configured_model),
+        @default_model
+      ]
+    else
+      [
+        Keyword.get(opts, :model),
+        env_model(),
+        Keyword.get(opts, :configured_model),
+        @default_model
+      ]
+    end
+  end
+
+  defp env_model, do: present_model(System.get_env("OUROCODE_CODEX_MODEL"))
+
+  defp present_model(model) when is_binary(model) do
+    case String.trim(model) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present_model(_model), do: nil
 
   defp truncate(body) when is_binary(body), do: String.slice(body, 0, 300)
   defp truncate(_body), do: ""

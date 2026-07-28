@@ -31,6 +31,7 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              "/sandbox",
              "/sessions",
              "/config",
+             "/provider",
              "/model",
              "/theme",
              "/login",
@@ -100,6 +101,19 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
     assert pane.category == :steering
     assert preflight.aliases == []
     assert preflight.summary == "Preview what a command would do before executing it."
+
+    provider = Enum.find(entries, &(&1.slash == "/provider"))
+    model = Enum.find(entries, &(&1.slash == "/model"))
+
+    assert provider.aliases == ["/providers"]
+    assert provider.run_spec.action == :select_provider
+    assert provider.summary =~ "provider"
+    assert provider.summary =~ "backend"
+
+    assert model.aliases == ["/models"]
+    assert model.run_spec.action == :show_model_commands
+    assert model.summary =~ "model"
+    refute model.summary =~ "backend"
 
     assert pane.args == [
              %{name: "pane_id", required?: true, description: "Pane or work item id"}

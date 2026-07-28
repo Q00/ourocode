@@ -14,7 +14,7 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommands do
   ]
   @command_slashes ~w(
     /help /commands /verify /agents /mcp /config /theme /sandbox /sessions /resume
-    /model /login /plugins /approve /cancel /exit
+    /provider /model /login /plugins /approve /cancel /exit
   )
 
   @type action :: :show_help | :show_commands | :show_skills | :show_capabilities
@@ -108,7 +108,7 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommands do
 
   defp help_entries(entries) do
     wanted =
-      ~w(/help /commands /agents /mcp /config /theme /verify /sandbox /sessions /model /login /cancel)
+      ~w(/help /commands /agents /mcp /config /theme /verify /sandbox /sessions /provider /model /login /cancel)
 
     by_slash = Map.new(entries, &{&1.slash, &1})
 

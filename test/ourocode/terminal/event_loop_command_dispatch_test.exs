@@ -4,6 +4,7 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatchTest do
   alias Ourocode.Terminal.CommandInput
   alias Ourocode.Terminal.EventLoopCommandDispatch
   alias Ourocode.Terminal.EventLoopState
+  alias Ourocode.Terminal.TuiState
 
   test "submit persists a command event and records successful dispatch" do
     command_event = CommandInput.command_event("/status")
@@ -53,6 +54,41 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatchTest do
     assert [%{command: "/approve"}] = state.command_events
   end
 
+  test "default command handler sees live TUI model state for model commands" do
+    tui_state = TuiState.start_link()
+    TuiState.put_model_id(tui_state, :codex)
+    output = string_io()
+
+    on_exit(fn -> safe_stop(tui_state) end)
+
+    state =
+      state(
+        output: output,
+        on_command: :default_command_handler,
+        tui_state: tui_state
+      )
+
+    assert {:ok, state} =
+             EventLoopCommandDispatch.submit(CommandInput.command_event("/model"), state)
+
+    assert {:ok, state} =
+             EventLoopCommandDispatch.submit(
+               CommandInput.command_event("/model gpt-5.5"),
+               state
+             )
+
+    assert state.iterations == 2
+    assert TuiState.provider_model_slug(tui_state, :codex) == "gpt-5.5"
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "Codex models"
+    assert text =~ "gpt-5.5"
+    assert text =~ "gpt-5.3-codex"
+    assert text =~ "model: gpt-5.5 selected for codex"
+    refute text =~ "no models for ; 0 choices"
+    refute text =~ "no active TUI state is available"
+  end
+
   test "dispatch normalizes raised command handler exceptions" do
     command_event = CommandInput.command_event("/explode")
 
@@ -83,5 +119,11 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatchTest do
   defp string_io do
     {:ok, output} = StringIO.open("")
     output
+  end
+
+  defp safe_stop(pid) do
+    if Process.alive?(pid), do: Agent.stop(pid)
+  catch
+    :exit, _reason -> :ok
   end
 end

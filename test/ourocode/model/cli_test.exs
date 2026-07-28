@@ -11,85 +11,96 @@ defmodule Ourocode.Model.CliTest do
     refute "--append-system-prompt" in Cli.args(:gemini, "hi", "You are ourocode.")
   end
 
+  test "Windows runner invokes the CLI executable directly without POSIX shell dependency" do
+    path = "C:/Program Files/Gemini/gemini.exe"
+    args = ["-p", "hello from a path with spaces"]
+
+    assert Cli.runner_command(path, args, {:win32, :nt}, fn _bin ->
+             flunk("unexpected shell lookup")
+           end) ==
+             {path, args}
+  end
+
+  test "Unix runner keeps the stdin-closing shell wrapper" do
+    path = "/opt/gemini cli/bin/gemini"
+    args = ["-p", "hello from a path with spaces"]
+
+    assert Cli.runner_command(path, args, {:unix, :linux}, fn "sh" -> "/usr/bin/sh" end) ==
+             {"/usr/bin/sh", ["-c", ~s(exec "$0" "$@" </dev/null), path | args]}
+  end
+
   test "retries a run that fails before emitting any output" do
-    tmp_dir = tmp_dir!()
-    marker = Path.join(tmp_dir, "ran-once")
-    gemini_path = Path.join(tmp_dir, "gemini")
+    gemini_path = fake_executable_path()
+    calls = :counters.new(1, [])
 
-    # Fails silently on the first launch, echoes the prompt on the second.
-    File.write!(gemini_path, """
-    #!/bin/sh
-    if [ -f "#{marker}" ]; then printf '%s' "$2"; else touch "#{marker}"; exit 1; fi
-    """)
+    run = fn :gemini, ^gemini_path, ["-p", "hello"], on_chunk ->
+      :counters.add(calls, 1, 1)
 
-    File.chmod!(gemini_path, 0o755)
+      case :counters.get(calls, 1) do
+        1 ->
+          {:error, {:exit, 1}}
+
+        2 ->
+          on_chunk.("hello")
+          {:ok, "hello"}
+      end
+    end
 
     assert {:ok, "hello"} =
              Cli.stream(
                :gemini,
                "hello",
-               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1, run: run],
                fn _chunk -> :ok end
              )
 
-    assert File.exists?(marker)
+    assert :counters.get(calls, 1) == 2
   end
 
   test "does not retry once output has reached the renderer" do
-    tmp_dir = tmp_dir!()
-    count = Path.join(tmp_dir, "count")
-    gemini_path = Path.join(tmp_dir, "gemini")
+    gemini_path = fake_executable_path()
+    calls = :counters.new(1, [])
+    parent = self()
 
-    File.write!(gemini_path, """
-    #!/bin/sh
-    echo run >> "#{count}"
-    printf 'partial '
-    exit 1
-    """)
-
-    File.chmod!(gemini_path, 0o755)
+    run = fn :gemini, ^gemini_path, ["-p", "hello"], on_chunk ->
+      :counters.add(calls, 1, 1)
+      on_chunk.("partial ")
+      {:error, {:exit, 1}}
+    end
 
     assert {:error, {:exit, 1}} =
              Cli.stream(
                :gemini,
                "hello",
-               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
-               fn _chunk -> :ok end
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1, run: run],
+               fn chunk -> send(parent, {:chunk, chunk}) end
              )
 
-    assert File.read!(count) == "run\n"
+    assert :counters.get(calls, 1) == 1
+    assert_received {:chunk, "partial "}
   end
 
   test "a persistent silent failure surfaces after the retry budget" do
-    tmp_dir = tmp_dir!()
-    count = Path.join(tmp_dir, "count")
-    gemini_path = Path.join(tmp_dir, "gemini")
+    gemini_path = fake_executable_path()
+    calls = :counters.new(1, [])
 
-    File.write!(gemini_path, """
-    #!/bin/sh
-    echo run >> "#{count}"
-    exit 7
-    """)
-
-    File.chmod!(gemini_path, 0o755)
+    run = fn :gemini, ^gemini_path, ["-p", "hello"], _on_chunk ->
+      :counters.add(calls, 1, 1)
+      {:error, {:exit, 7}}
+    end
 
     assert {:error, {:exit, 7}} =
              Cli.stream(
                :gemini,
                "hello",
-               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1, run: run],
                fn _chunk -> :ok end
              )
 
-    assert File.read!(count) == "run\nrun\nrun\n"
+    assert :counters.get(calls, 1) == 3
   end
 
-  defp tmp_dir! do
-    tmp_dir =
-      Path.join(System.tmp_dir!(), "ourocode-cli-test-#{System.unique_integer([:positive])}")
-
-    File.mkdir_p!(tmp_dir)
-    on_exit(fn -> File.rm_rf(tmp_dir) end)
-    tmp_dir
+  defp fake_executable_path do
+    Path.join(System.tmp_dir!(), "gemini-test-bin-#{System.unique_integer([:positive])}")
   end
 end

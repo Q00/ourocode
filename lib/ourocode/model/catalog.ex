@@ -27,10 +27,15 @@ defmodule Ourocode.Model.Catalog do
   @spec list(keyword()) :: [Model.t()]
   def list(opts \\ []) do
     which = Keyword.get(opts, :which, &System.find_executable/1)
+    cli_stream = Keyword.get(opts, :cli_stream, &Ourocode.Model.Cli.stream/4)
     codex_signed_in? = Keyword.get_lazy(opts, :codex_signed_in, &Codex.signed_in?/0)
     anthropic_signed_in? = Keyword.get_lazy(opts, :anthropic_signed_in, &Anthropic.signed_in?/0)
 
-    [codex_model(codex_signed_in?), claude_api_model(anthropic_signed_in?) | cli_models(which)]
+    [
+      codex_model(codex_signed_in?),
+      claude_api_model(anthropic_signed_in?)
+      | cli_models(which, cli_stream)
+    ]
   end
 
   @doc """
@@ -59,6 +64,31 @@ defmodule Ourocode.Model.Catalog do
   @doc "Selectable rows for the picker (excludes purely unavailable backends)."
   @spec selectable([Model.t()]) :: [Model.t()]
   def selectable(models), do: Enum.reject(models, &(&1.status == :unavailable))
+
+  @doc "Provider-specific model slugs available for a backend provider."
+  @spec provider_model_slugs(atom()) :: [map()]
+  defdelegate provider_model_slugs(provider_id), to: Ourocode.Model.ProviderModels
+
+  @doc "Built-in default model slug for a backend provider."
+  @spec default_provider_model_slug(atom()) :: String.t() | nil
+  defdelegate default_provider_model_slug(provider_id), to: Ourocode.Model.ProviderModels
+
+  @doc "Looks up a provider-specific model slug after normalizing user input."
+  @spec fetch_provider_model_slug(atom(), term()) :: map() | nil
+  defdelegate fetch_provider_model_slug(provider_id, slug), to: Ourocode.Model.ProviderModels
+
+  @doc """
+  Validates a provider-specific model slug.
+
+  Built-in slugs must be present in `provider_model_slugs/1`. Tests and future
+  provider migration paths may pass `allow_custom?: true` to store a nonblank
+  slug without making it the global default or adding it to the catalog.
+  """
+  @spec validate_provider_model_slug(atom(), term(), keyword()) ::
+          {:ok, String.t()}
+          | {:error, :unknown_provider | :invalid_slug | :blank_slug | :unknown_slug}
+  defdelegate validate_provider_model_slug(provider_id, slug, opts \\ []),
+    to: Ourocode.Model.ProviderModels
 
   defp codex_model(signed_in?) do
     %Model{
@@ -107,7 +137,7 @@ defmodule Ourocode.Model.Catalog do
     }
   end
 
-  defp cli_models(which) do
+  defp cli_models(which, cli_stream) do
     Ourocode.Model.Cli.specs()
     |> Map.keys()
     |> Enum.sort()
@@ -128,7 +158,7 @@ defmodule Ourocode.Model.Catalog do
               _none -> prompt
             end
 
-          Ourocode.Model.Cli.stream(id, prompt, Keyword.put(opts, :which, which), on_chunk)
+          cli_stream.(id, prompt, Keyword.put(opts, :which, which), on_chunk)
         end
       }
     end)

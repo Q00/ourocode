@@ -28,6 +28,7 @@ defmodule Ourocode.Terminal.TuiStateInitial do
       tick: 0,
       size: {120, 40},
       model_id: nil,
+      model_slug_by_provider: %{},
       model_cache: nil,
       scroll: 0,
       workspace: nil,

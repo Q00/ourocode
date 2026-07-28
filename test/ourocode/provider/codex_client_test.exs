@@ -1,7 +1,73 @@
 defmodule Ourocode.Provider.Codex.ClientTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ourocode.Provider.Codex.Client
+
+  test "default_model uses the ChatGPT Codex supported model name" do
+    previous = System.get_env("OUROCODE_CODEX_MODEL")
+    System.delete_env("OUROCODE_CODEX_MODEL")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("OUROCODE_CODEX_MODEL", previous),
+        else: System.delete_env("OUROCODE_CODEX_MODEL")
+    end)
+
+    assert Client.default_model() == "gpt-5.5"
+  end
+
+  test "default_model can be overridden for provider migrations" do
+    previous = System.get_env("OUROCODE_CODEX_MODEL")
+    System.put_env("OUROCODE_CODEX_MODEL", " custom-codex-model ")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("OUROCODE_CODEX_MODEL", previous),
+        else: System.delete_env("OUROCODE_CODEX_MODEL")
+    end)
+
+    assert Client.default_model() == "custom-codex-model"
+  end
+
+  test "stream_request_body resolves explicit env configured and fallback model precedence" do
+    previous = System.get_env("OUROCODE_CODEX_MODEL")
+    System.put_env("OUROCODE_CODEX_MODEL", " env-codex-model ")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("OUROCODE_CODEX_MODEL", previous),
+        else: System.delete_env("OUROCODE_CODEX_MODEL")
+    end)
+
+    assert Client.stream_request_body("hello", [model: " explicit-codex-model "], "sys")[
+             "model"
+           ] == "explicit-codex-model"
+
+    assert Client.stream_request_body("hello", [configured_model: "gpt-5.3-codex"], "sys")[
+             "model"
+           ] == "env-codex-model"
+
+    assert Client.stream_request_body(
+             "hello",
+             [model: "gpt-5.3-codex", model_source: :session],
+             "sys"
+           )["model"] == "env-codex-model"
+
+    System.put_env("OUROCODE_CODEX_MODEL", "  ")
+
+    assert Client.stream_request_body(
+             "hello",
+             [model: " gpt-5.3-codex ", model_source: :session],
+             "sys"
+           )["model"] == "gpt-5.3-codex"
+
+    assert Client.stream_request_body("hello", [configured_model: " gpt-5.3-codex "], "sys")[
+             "model"
+           ] == "gpt-5.3-codex"
+
+    assert Client.stream_request_body("hello", [configured_model: "  "], "sys")["model"] ==
+             "gpt-5.5"
+  end
 
   test "request_body builds the Responses API user turn" do
     body = Client.request_body("hello", "gpt-5.3-codex", "sys")

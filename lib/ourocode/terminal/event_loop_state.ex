@@ -57,6 +57,7 @@ defmodule Ourocode.Terminal.EventLoopState do
       focus_events: [],
       focus_state: Map.get(options, :focus_state, FocusState.new()),
       pane_model: Map.get(options, :pane_model, FocusNavigation.default_pane_model()),
+      tui_state: Map.get(options, :tui_state),
       keyboard_focus_bindings: FocusNavigation.keyboard_focus_bindings(options),
       recoverable_errors: []
     }

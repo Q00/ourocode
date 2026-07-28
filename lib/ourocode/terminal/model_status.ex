@@ -37,4 +37,24 @@ defmodule Ourocode.Terminal.ModelStatus do
     do: {"model: #{label}  #{hint}", :dim}
 
   def auth_label(_model), do: {"no model  -  /model", :dim}
+
+  @doc "Provider/model footer label with optional last-turn latency."
+  @spec hud_status(Model.t(), String.t() | nil, non_neg_integer() | nil) :: String.t()
+  def hud_status(%Model{} = model, provider_model_slug, last_turn_ms) do
+    label = hud_label(model, provider_model_slug)
+
+    case last_turn_ms do
+      ms when is_integer(ms) -> "#{label} · #{format_latency(ms)}"
+      _none -> label
+    end
+  end
+
+  @spec hud_label(Model.t(), String.t() | nil) :: String.t()
+  def hud_label(%Model{label: label}, slug) when is_binary(slug) and slug != "",
+    do: "provider: #{label}  model: #{slug}"
+
+  def hud_label(%Model{label: label}, _slug), do: "provider: #{label}"
+
+  defp format_latency(ms) when ms < 1_000, do: "#{ms}ms"
+  defp format_latency(ms), do: "#{Float.round(ms / 1_000, 1)}s"
 end

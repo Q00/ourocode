@@ -76,18 +76,19 @@ defmodule Ourocode.Model.Conversation do
 
     transcript =
       Enum.map_join(turns, "\n\n", fn %{user: user, assistant: assistant} ->
-        "user: #{user}\nassistant: #{assistant}"
+        "user: #{normalize_newlines(user)}\nassistant: #{normalize_newlines(assistant)}"
       end)
 
     elision = if elided > 0, do: "[#{elided} earlier turn(s) elided]\n\n", else: ""
 
-    """
-    ## Conversation so far (replayed by the ourocode harness)
-    #{elision}#{transcript}
-
-    ## Current message
-    #{prompt}
-    """
+    IO.iodata_to_binary([
+      "## Conversation so far (replayed by the ourocode harness)\n",
+      elision,
+      transcript,
+      "\n\n## Current message\n",
+      normalize_newlines(prompt),
+      "\n"
+    ])
   end
 
   @doc """
@@ -146,6 +147,12 @@ defmodule Ourocode.Model.Conversation do
 
   defp cap(text) do
     utf8_prefix(text, @turn_cap_bytes) <> "\n...[truncated]"
+  end
+
+  defp normalize_newlines(text) do
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
   end
 
   # A byte cut lands at most 3 bytes inside a UTF-8 sequence; after that the

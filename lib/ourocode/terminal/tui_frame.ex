@@ -10,6 +10,7 @@ defmodule Ourocode.Terminal.TuiFrame do
     InterviewPanel.QuestionLedger,
     LiveResult,
     LiveTurnActivity,
+    ModelStatus,
     RendererInterview,
     RuntimeSplit,
     Screen,
@@ -183,16 +184,10 @@ defmodule Ourocode.Terminal.TuiFrame do
   # first token arrived (a CLI subprocess is multi-second; a direct API call
   # is ~1s). Latency shows only after a real turn has been timed.
   defp model_status(state) do
-    label = TuiModelSelection.active_model(state, 2_000).label
-
-    case TuiState.last_turn_ms(state) do
-      ms when is_integer(ms) -> "#{label} · #{format_latency(ms)}"
-      _none -> label
-    end
+    model = TuiModelSelection.active_model(state, 2_000)
+    slug = TuiState.provider_model_slug(state, model.id)
+    ModelStatus.hud_status(model, slug, TuiState.last_turn_ms(state))
   end
-
-  defp format_latency(ms) when ms < 1_000, do: "#{ms}ms"
-  defp format_latency(ms), do: "#{Float.round(ms / 1_000, 1)}s"
 
   defp interview_block_lines(result, nav, tick) do
     Ourocode.Terminal.InterviewPanel.interview_block_lines(result, nav, tick)
