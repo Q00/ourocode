@@ -188,6 +188,19 @@ defmodule Ourocode.Terminal.Screen do
     end)
   end
 
+  @doc """
+  Projects the buffer to per-row ANSI strings for `theme`, preserving styles
+  (unlike `to_lines/1`, which strips them). Each row is a self-contained ANSI
+  string with a trailing reset and no cursor-move codes, so a browser QA
+  harness can parse the SGR runs into coloured spans. Colours resolve through
+  the same `render_row` path the live tty uses, so the harness shows exactly
+  what the terminal draws.
+  """
+  @spec to_ansi_lines(t(), :dark | :light) :: [String.t()]
+  def to_ansi_lines(%{height: height} = screen, theme) when theme in [:dark, :light] do
+    Enum.map(0..(height - 1), fn y -> render_row(screen, y, theme) end)
+  end
+
   defp box_top(w, nil), do: "+" <> String.duplicate("-", w - 2) <> "+"
 
   defp box_top(w, title) do
@@ -215,7 +228,12 @@ defmodule Ourocode.Terminal.Screen do
     %{screen | rows: Map.put(rows, y, row)}
   end
 
-  defp render_row(%{width: width, rows: rows}, y) do
+  # Env-theme fast path used by the live tty (to_ansi/1, diff/2): resolve the
+  # active theme once per row, then defer to the theme-explicit clause so the
+  # colour resolution lives in one place.
+  defp render_row(screen, y), do: render_row(screen, y, ScreenStyles.theme())
+
+  defp render_row(%{width: width, rows: rows}, y, theme) do
     row = Map.get(rows, y, %{})
 
     {segments, last_style} =
@@ -230,7 +248,7 @@ defmodule Ourocode.Terminal.Screen do
             if style == current_style do
               {[grapheme | segments], current_style}
             else
-              {[grapheme, ScreenStyles.sgr(style) | segments], style}
+              {[grapheme, ScreenStyles.sgr(style, theme) | segments], style}
             end
         end
       end)

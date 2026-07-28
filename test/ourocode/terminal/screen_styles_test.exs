@@ -9,6 +9,13 @@ defmodule Ourocode.Terminal.ScreenStylesTest do
     assert ScreenStyles.sgr(:ok, :dark) == "\e[0;48;2;10;10;11;38;2;102;217;194m"
   end
 
+  test "command style is theme-owned and distinct from the ooo/brand highlight" do
+    assert ScreenStyles.styled?(:command)
+    assert ScreenStyles.sgr(:command, :dark) != ScreenStyles.sgr(:command, :light)
+    refute ScreenStyles.sgr(:command, :dark) == ScreenStyles.sgr(:brand, :dark)
+    refute ScreenStyles.sgr(:command, :light) == ScreenStyles.sgr(:brand, :light)
+  end
+
   test "styled? treats nil as unstyled and text as theme-owned" do
     refute ScreenStyles.styled?(nil)
     assert ScreenStyles.styled?(:text)

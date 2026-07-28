@@ -11,6 +11,11 @@ defmodule Ourocode.Terminal.RendererChrome do
   # work, where the old .oOo pulse looked like a stutter. Matches the unicode
   # vocabulary already used by the prompt activity frames.
   @spinner ~w(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  # Leading "/command" token in the composer: optional indent, the slash token
+  # (slash + a run of non-space), then the rest of the line. Highlighted for
+  # the same readability reason as the leading `ooo` token, and only when the
+  # slash leads the line so `a/b`, `http://x`, or a mid-line `/x` stay plain.
+  @slash_token ~r{^(\s*)(/\S+)(.*)$}
 
   @spec draw_header(map(), pos_integer(), map(), map()) :: map()
   def draw_header(screen, width, kv, opts) do
@@ -104,24 +109,36 @@ defmodule Ourocode.Terminal.RendererChrome do
   defp put_composer_text(screen, x, y, text, :text, width) do
     clipped = clip(text, width)
 
-    if String.starts_with?(String.trim_leading(clipped), "ooo") do
-      leading = byte_size(clipped) - byte_size(String.trim_leading(clipped))
-      prefix = binary_part(clipped, 0, leading)
-      rest = binary_part(clipped, leading, byte_size(clipped) - leading)
+    cond do
+      captures = Regex.run(@slash_token, clipped) ->
+        [_full, lead, token, rest] = captures
+        put_highlighted_token(screen, x, y, lead, token, :command, rest)
 
-      screen = Screen.put_text(screen, x, y, prefix, :text)
-      token_w = Screen.text_width(prefix)
+      String.starts_with?(String.trim_leading(clipped), "ooo") ->
+        leading = byte_size(clipped) - byte_size(String.trim_leading(clipped))
+        lead = binary_part(clipped, 0, leading)
+        after_lead = binary_part(clipped, leading, byte_size(clipped) - leading)
+        put_highlighted_token(screen, x, y, lead, "ooo", :brand, String.replace_prefix(after_lead, "ooo", ""))
 
-      screen
-      |> Screen.put_text(x + token_w, y, "ooo", :brand)
-      |> Screen.put_text(x + token_w + 3, y, String.replace_prefix(rest, "ooo", ""), :text)
-    else
-      Screen.put_text(screen, x, y, clipped, :text)
+      true ->
+        Screen.put_text(screen, x, y, clipped, :text)
     end
   end
 
   defp put_composer_text(screen, x, y, text, style, width) do
     Screen.put_text(screen, x, y, clip(text, width), style)
+  end
+
+  # Paints "<indent :text><token token_style><rest :text>", advancing by
+  # display width so multibyte args after the token stay aligned.
+  defp put_highlighted_token(screen, x, y, lead, token, token_style, rest) do
+    lead_w = Screen.text_width(lead)
+    token_w = Screen.text_width(token)
+
+    screen
+    |> Screen.put_text(x, y, lead, :text)
+    |> Screen.put_text(x + lead_w, y, token, token_style)
+    |> Screen.put_text(x + lead_w + token_w, y, rest, :text)
   end
 
   defp activity_dot(kv, opts) do

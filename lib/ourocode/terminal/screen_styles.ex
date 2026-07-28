@@ -25,6 +25,7 @@ defmodule Ourocode.Terminal.ScreenStyles do
     err: "\e[0;48;2;10;10;11;38;2;248;81;73m",
     placeholder: "\e[0;48;2;10;10;11;38;2;84;84;93m",
     text: "\e[0;48;2;10;10;11;38;2;226;226;229m",
+    command: "\e[0;1;48;2;10;10;11;38;2;125;180;255m",
     p_fill: "\e[0;48;2;17;17;17;38;2;224;224;224m",
     p_title: "\e[0;1;48;2;17;17;17;38;2;224;224;224m",
     p_accent: "\e[0;1;48;2;17;17;17;38;2;102;217;194m",
@@ -47,6 +48,7 @@ defmodule Ourocode.Terminal.ScreenStyles do
     err: "\e[0;48;2;250;250;249;38;2;181;42;42m",
     placeholder: "\e[0;48;2;250;250;249;38;2;153;153;158m",
     text: "\e[0;48;2;250;250;249;38;2;34;34;38m",
+    command: "\e[0;1;48;2;250;250;249;38;2;38;92;198m",
     p_fill: "\e[0;48;2;242;242;240;38;2;42;42;46m",
     p_title: "\e[0;1;48;2;242;242;240;38;2;34;34;38m",
     p_accent: "\e[0;1;48;2;242;242;240;38;2;20;102;90m",
@@ -69,6 +71,7 @@ defmodule Ourocode.Terminal.ScreenStyles do
           | :err
           | :placeholder
           | :text
+          | :command
           | :p_fill
           | :p_title
           | :p_accent

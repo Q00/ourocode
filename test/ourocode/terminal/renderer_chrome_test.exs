@@ -1,7 +1,7 @@
 defmodule Ourocode.Terminal.RendererChromeTest do
   use ExUnit.Case, async: true
 
-  alias Ourocode.Terminal.{RendererChrome, Screen}
+  alias Ourocode.Terminal.{RendererChrome, Screen, ScreenStyles}
 
   test "spinner_frame cycles through the braille rotation" do
     assert RendererChrome.spinner_frame(0) == "⠋"
@@ -48,6 +48,50 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
     assert text =~ "> ooo interview"
     refute text =~ "Message ourocode"
+  end
+
+  defp composer_ansi(buffer, theme) do
+    60
+    |> Screen.new(8)
+    |> RendererChrome.draw_composer(60, 4, buffer, :normal, %{})
+    |> Screen.to_ansi_lines(theme)
+    |> Enum.join("\n")
+  end
+
+  test "draw_composer highlights a leading /command token with the command style" do
+    ansi = composer_ansi("/help", :dark)
+
+    assert ansi =~ ScreenStyles.sgr(:command, :dark) <> "/help"
+  end
+
+  test "the /command token highlight adapts to the theme" do
+    dark = composer_ansi("/model", :dark)
+    light = composer_ansi("/model", :light)
+
+    assert dark =~ ScreenStyles.sgr(:command, :dark) <> "/model"
+    assert light =~ ScreenStyles.sgr(:command, :light) <> "/model"
+    refute ScreenStyles.sgr(:command, :dark) == ScreenStyles.sgr(:command, :light)
+  end
+
+  test "only the leading /command token is highlighted; args stay plain" do
+    ansi = composer_ansi("/preflight ls -la", :dark)
+
+    assert ansi =~ ScreenStyles.sgr(:command, :dark) <> "/preflight"
+    # Exactly one command-styled run — the token, never the args.
+    assert ansi |> String.split(ScreenStyles.sgr(:command, :dark)) |> length() == 2
+  end
+
+  test "a mid-line or non-command slash is not highlighted" do
+    for buffer <- ["a/b", "http://example.com", "run /x", "hello world"] do
+      refute composer_ansi(buffer, :dark) =~ ScreenStyles.sgr(:command, :dark)
+    end
+  end
+
+  test "the ooo token keeps its brand highlight and is distinct from /command" do
+    ansi = composer_ansi("ooo interview", :dark)
+
+    assert ansi =~ ScreenStyles.sgr(:brand, :dark) <> "ooo"
+    refute ansi =~ ScreenStyles.sgr(:command, :dark)
   end
 
   test "draw_composer uses richer entry placeholder on narrow terminals" do
