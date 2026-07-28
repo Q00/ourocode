@@ -42,6 +42,23 @@ defmodule Ourocode.Runtime.RouterTest do
             }} = Router.route("Run Ouroboros workflow evolve for plugin renderer")
   end
 
+  test "routes natural SaaS product goals to the visible PM interview" do
+    assert {:ok,
+            %Router{
+              execution_route: :ouroboros_workflow,
+              runtime_source: :ouroboros,
+              adapter_route: :pm,
+              route_label: "Ouroboros PM interview",
+              message: "Ouroboros PM interview via Ouroboros using Auto transport",
+              routing_decision: %{
+                adapter_route: :pm,
+                reason: :product_goal_terms,
+                advanced_shortcut?: false,
+                requires_command_syntax?: false
+              }
+            }} = Router.route("카드 뉴스를 만들어주는 나만의 SaaS를 만들고 싶어")
+  end
+
   test "allows explicit diagnostics and test commands only as advanced shortcuts" do
     assert {:ok,
             %Router{

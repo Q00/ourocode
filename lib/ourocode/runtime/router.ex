@@ -108,6 +108,7 @@ defmodule Ourocode.Runtime.Router do
   end
 
   defp adapter_route_label(:interview), do: "interview"
+  defp adapter_route_label(:pm), do: "PM interview"
   defp adapter_route_label(:auto), do: "auto"
   defp adapter_route_label(:seed), do: "seed"
   defp adapter_route_label(:run), do: "run"

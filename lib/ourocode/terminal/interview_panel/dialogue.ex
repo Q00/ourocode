@@ -36,6 +36,9 @@ defmodule Ourocode.Terminal.InterviewPanel.Dialogue do
   defp internal_turn?(%{role: :main, text: text}) when is_binary(text),
     do: leaked_router_prompt?(text) or String.starts_with?(String.trim(text), "→ asking you:")
 
+  defp internal_turn?(%{role: :mcp, text: text}) when is_binary(text),
+    do: completion_turn?(text)
+
   defp internal_turn?(_turn), do: false
 
   defp row(%{role: role, text: text}) do
@@ -43,11 +46,36 @@ defmodule Ourocode.Terminal.InterviewPanel.Dialogue do
       case role do
         :mcp -> {"Question", :warn}
         :main -> {"MAIN", :ok}
-        :user -> {"Answer", :strong}
+        :user -> user_row_label(text)
         _other -> {"TURN", :dim}
       end
 
     {label <> "  " <> (text |> InterviewResponse.clean_markdown() |> Text.flatten_line()), style}
+  end
+
+  defp user_row_label(text) when is_binary(text) do
+    if workflow_command?(text), do: {"Goal", :strong}, else: {"Answer", :strong}
+  end
+
+  defp user_row_label(_text), do: {"Answer", :strong}
+
+  defp workflow_command?(text) do
+    case String.trim_leading(text) do
+      "ooo" -> true
+      "ooo" <> rest -> String.match?(rest, ~r/^\s/)
+      _other -> false
+    end
+  end
+
+  defp completion_turn?(text) do
+    text = String.downcase(text)
+
+    String.contains?(text, "interview complete") or
+      String.contains?(text, "interview completed") or
+      String.contains?(text, "local interview fallback complete") or
+      String.contains?(text, "ai interview fallback complete") or
+      String.contains?(text, "ready for seed generation") or
+      String.contains?(text, "ooo seed")
   end
 
   defp leaked_router_prompt?(text) when is_binary(text) do

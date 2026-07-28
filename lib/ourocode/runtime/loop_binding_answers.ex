@@ -25,6 +25,8 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
   @spec answer_interview(pid(), String.t(), enqueue_fun()) ::
           {:ok, String.t()} | {:error, :no_active_interview}
   def answer_interview(agent, text, enqueue) when is_pid(agent) and is_binary(text) do
+    text = clean_text(text)
+
     case Agent.get(agent, &{&1.interview, Map.get(&1, :interview_waiter)}) do
       {%{} = interview, waiter} ->
         enqueue.(agent, InterviewEvents.answer_ack(interview, text))
@@ -42,6 +44,13 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
       {_none, _waiter} ->
         {:error, :no_active_interview}
     end
+  end
+
+  defp clean_text(text) when is_binary(text) do
+    text
+    |> String.replace_invalid("")
+    |> String.replace(<<0xFFFD::utf8>>, "")
+    |> String.trim()
   end
 
   @spec cancel_interview(pid(), enqueue_fun()) ::

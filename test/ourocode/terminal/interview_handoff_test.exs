@@ -6,10 +6,19 @@ defmodule Ourocode.Terminal.InterviewHandoffTest do
   test "prompt wraps a paused interview question and user message" do
     prompt = InterviewHandoff.prompt("Which provider?", "Compare Stripe and Toss")
 
+    refute prompt =~ "\r\n"
     assert prompt =~ "An interview checkpoint is paused"
     assert prompt =~ "Pending interview question:\nWhich provider?"
     assert prompt =~ "User message:\nCompare Stripe and Toss"
     assert prompt =~ "INTERVIEW_ANSWER: <concise answer to submit>"
+  end
+
+  test "prompt normalizes CRLF in handoff inputs" do
+    prompt = InterviewHandoff.prompt("Which\r\nprovider?", "Compare\r\nStripe and Toss")
+
+    refute prompt =~ "\r\n"
+    assert prompt =~ "Pending interview question:\nWhich\nprovider?"
+    assert prompt =~ "User message:\nCompare\nStripe and Toss"
   end
 
   test "extract_answer reads the last explicit handoff line" do

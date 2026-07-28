@@ -95,6 +95,29 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert InterviewPanel.mcp_activity_lines(result) == []
   end
 
+  test "completed local preview does not keep router trace spinner running" do
+    result = %{
+      interview: %{
+        complete: :local_preview,
+        status: "interview complete: local_preview",
+        router: ["MCP daemon unavailable; using local PM interview fallback"],
+        dialogue: [
+          %{role: :mcp, text: "local interview fallback complete - run ooo seed when ready"},
+          %{role: :user, text: "Accounts and sharing"}
+        ]
+      }
+    }
+
+    assert InterviewPanel.interview_working_lines(result, 0) == []
+    assert {_, lines, _} = InterviewPanel.interview_block_lines(result, nil, 0)
+
+    refute Enum.any?(lines, fn
+             {line, _style} -> String.contains?(line, "MCP daemon unavailable")
+             line when is_binary(line) -> String.contains?(line, "MCP daemon unavailable")
+             :rule -> false
+           end)
+  end
+
   test "interview block strips MCP session preamble from dialogue rows" do
     result = %{
       interview: %{
@@ -373,7 +396,7 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
         line -> line
       end)
 
-    assert text =~ "Answer  ooo interview validate plugin install flow"
+    assert text =~ "Goal  ooo interview validate plugin install flow"
     assert text =~ "■⬝⬝ building the first question"
     refute text =~ "Answer in my own words"
     refute text =~ "[Free answer]"

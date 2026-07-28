@@ -148,7 +148,8 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
       production_parent_call: fn _agent, _runtime, _parent_call_id ->
         fn _payload -> {:error, :not_used_in_test} end
       end,
-      mcp_url: fn -> "http://127.0.0.1:4000/mcp" end
+      mcp_url: fn -> "http://127.0.0.1:4000/mcp" end,
+      local_interview_fallback?: false
     }
 
     cases = [

@@ -92,7 +92,7 @@ defmodule Ourocode.Runtime.InterviewEventsTest do
 
     state =
       %{
-        interview: %{waiting: true},
+        interview: %{waiting: true, question: "Pending?", question_options: [%{label: "A"}]},
         interview_session: %{id: "session-1"},
         interview_waiter: self()
       }
@@ -101,6 +101,9 @@ defmodule Ourocode.Runtime.InterviewEventsTest do
     assert state.interview.seed_ready == true
     assert state.interview.complete == :seed_ready
     assert state.interview.waiting == false
+    assert state.interview.status == "interview complete: seed_ready"
+    assert state.interview.question == ""
+    refute Map.has_key?(state.interview, :question_options)
     assert state.interview_session == nil
     assert state.interview_waiter == nil
   end

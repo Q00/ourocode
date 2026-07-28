@@ -29,6 +29,17 @@ defmodule Ourocode.Terminal.InterviewPanel.DialogueTest do
     assert Dialogue.rows(state, true) == [{"Answer  Known answer", :strong}]
   end
 
+  test "does not label completion notices as questions" do
+    state = %{
+      dialogue: [
+        %{role: :mcp, text: "AI interview fallback complete - run ooo seed when ready"},
+        %{role: :user, text: "Accounts and sharing"}
+      ]
+    }
+
+    assert Dialogue.rows(state, false) == [{"Answer  Accounts and sharing", :strong}]
+  end
+
   test "filters leaked internal router prompts from main dialogue" do
     state = %{
       dialogue: [
@@ -38,6 +49,16 @@ defmodule Ourocode.Terminal.InterviewPanel.DialogueTest do
     }
 
     assert Dialogue.rows(state, false) == [{"Answer  Visible", :strong}]
+  end
+
+  test "labels workflow commands as goals instead of answers" do
+    state = %{
+      dialogue: [
+        %{role: :user, text: "ooo pm build onboarding"}
+      ]
+    }
+
+    assert Dialogue.rows(state, false) == [{"Goal  ooo pm build onboarding", :strong}]
   end
 
   test "keeps only the most recent dialogue turns from newest-first state" do

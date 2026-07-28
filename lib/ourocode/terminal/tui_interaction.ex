@@ -431,7 +431,7 @@ defmodule Ourocode.Terminal.TuiInteraction do
   defp accepted_notification(""), do: "accepted - answer captured"
   defp accepted_notification(label), do: "accepted - " <> label
 
-  defp log(output, text), do: IO.puts(output, text)
+  defp log(output, text), do: IO.puts(output, String.replace_invalid(text, ""))
 
   defp clear_captured_activity(output) do
     StringIO.flush(output)

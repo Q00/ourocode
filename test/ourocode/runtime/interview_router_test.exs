@@ -38,6 +38,51 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
 
   defp ctx, do: %{project_dir: File.cwd!(), streak: 0}
 
+  defp link_escape!(root, name) do
+    link_path = Path.join(root, name)
+    remove_escape_link(link_path)
+
+    if match?({:win32, _}, :os.type()) do
+      target =
+        Path.join(
+          System.tmp_dir!(),
+          "ourocode_sbx_target_#{System.unique_integer([:positive])}"
+        )
+
+      File.rm_rf!(target)
+      File.mkdir_p!(target)
+      on_exit(fn -> File.rm_rf(target) end)
+      on_exit(fn -> remove_escape_link(link_path) end)
+
+      {out, status} =
+        System.cmd(
+          "cmd",
+          ["/d", "/c", "mklink", "/J", windows_path(link_path), windows_path(target)],
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, out
+    else
+      File.ln_s!("/etc", link_path)
+      on_exit(fn -> remove_escape_link(link_path) end)
+    end
+  end
+
+  defp remove_sandbox_root(root) do
+    remove_escape_link(Path.join(root, "escape"))
+    File.rm_rf(root)
+  end
+
+  defp remove_escape_link(path) do
+    if match?({:win32, _}, :os.type()) do
+      System.cmd("cmd", ["/d", "/c", "rmdir", windows_path(path)], stderr_to_stdout: true)
+    else
+      File.rm(path)
+    end
+  end
+
+  defp windows_path(path), do: path |> Path.expand() |> String.replace("/", "\\")
+
   test "single-turn ANSWER is parsed with its source prefix" do
     model = scripted_model(["ANSWER [from-code] Elixir 1.15 escript CLI (mix.exs)"])
 
@@ -181,11 +226,12 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
 
   test "sandbox rejects a symlink inside the project that escapes the root" do
     root = Path.join(System.tmp_dir!(), "ourocode_sbx_#{System.unique_integer([:positive])}")
+    remove_sandbox_root(root)
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> remove_sandbox_root(root) end)
     # A link inside the project pointing OUT — a pure string-prefix check
     # would wrongly accept `escape/anything`; resolve-then-contain rejects it.
-    File.ln_s!("/etc", Path.join(root, "escape"))
+    link_escape!(root, "escape")
 
     model =
       scripted_model([

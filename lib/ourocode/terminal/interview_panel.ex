@@ -24,8 +24,7 @@ defmodule Ourocode.Terminal.InterviewPanel do
     trace = if iv, do: List.first(Map.get(iv, :router, [])), else: nil
 
     if paused?(result) or waiting_for_user?(iv) or interview_error?(iv) or
-         active_question_waiting?(iv) or
-         (iv && Map.get(iv, :complete) && is_nil(trace)) do
+         active_question_waiting?(iv) or completed_without_visible_answer?(iv, trace) do
       []
     else
       [working_line(tick, trace, waiting_elapsed_seconds(iv))]
@@ -351,6 +350,20 @@ defmodule Ourocode.Terminal.InterviewPanel do
     do: String.downcase(status) == "waiting for your answer"
 
   defp waiting_for_user?(_interview), do: false
+
+  defp completed_without_visible_answer?(%{complete: complete}, trace) when not is_nil(complete),
+    do: not seed_ready_answer_trace?(complete, trace)
+
+  defp completed_without_visible_answer?(_interview, _trace), do: false
+
+  defp seed_ready_answer_trace?(complete, trace) when complete in [:seed_ready, "seed_ready"] do
+    trace
+    |> Text.flatten_line()
+    |> String.upcase()
+    |> String.starts_with?("ANSWER")
+  end
+
+  defp seed_ready_answer_trace?(_complete, _trace), do: false
 
   defp interview_error?(%{status: status}) when is_binary(status),
     do: interview_error_status?(status)

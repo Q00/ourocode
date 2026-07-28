@@ -10,7 +10,7 @@ defmodule Ourocode.Runtime.InterviewRouter.Directive do
           | {:tool, atom(), String.t()}
           | :unparseable
 
-  @option_re ~r/\A[-*]\s*(.+?)\s*[|｜]\s*(.+)\z/
+  @option_re ~r/\A[-*]\s*(.+?)\s*[|｜]\s*(.+)\z/u
   @directive_re ~r/\A(?:TOOL\s+(?:READ|GLOB|GREP)\b|ANSWER\b|ASK_USER\b)/
 
   @spec parse(String.t()) :: t()
@@ -81,7 +81,7 @@ defmodule Ourocode.Runtime.InterviewRouter.Directive do
   end
 
   defp expand_inline_ask_user_option_line(body) do
-    case Regex.run(~r/\s+-\s+[^|\n]+?\s*[|｜]/u, body, return: :index) do
+    case Regex.run(~r/\s+-\s+[^|｜\n]+?\s*[|｜]/u, body, return: :index) do
       [{start, _length}] ->
         {question, rest} = String.split_at(body, start)
         option_lines = inline_option_lines(rest)
@@ -100,7 +100,7 @@ defmodule Ourocode.Runtime.InterviewRouter.Directive do
   end
 
   defp inline_option_lines(rest) do
-    ~r/(?:^\s*-\s*|\s+-\s*)([^|\n]+?)\s*[|｜]\s*(.*?)(?=\s+-\s*[^|\n]+?\s*[|｜]|$)/u
+    ~r/(?:^\s*-\s*|\s+-\s*)([^|｜\n]+?)\s*[|｜]\s*(.*?)(?=\s+-\s*[^|｜\n]+?\s*[|｜]|$)/u
     |> Regex.scan(rest)
     |> Enum.map(fn [_, label, desc] ->
       "- #{String.trim(label)} | #{String.trim(desc)}"

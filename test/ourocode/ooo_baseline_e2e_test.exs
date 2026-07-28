@@ -110,10 +110,19 @@ defmodule Ourocode.OooBaselineE2ETest do
     assert inspect(registry, limit: :infinity) =~ "ouroboros_interview"
   end
 
-  test "unreachable MCP server surfaces a visible failure without crashing", %{
+  test "unavailable MCP server opens a visible local interview fallback", %{
     runtime: runtime
   } do
-    {:ok, _agent, binding_options} =
+    previous_autostart = System.get_env("OUROCODE_MCP_AUTOSTART")
+    System.put_env("OUROCODE_MCP_AUTOSTART", "0")
+
+    on_exit(fn ->
+      if previous_autostart,
+        do: System.put_env("OUROCODE_MCP_AUTOSTART", previous_autostart),
+        else: System.delete_env("OUROCODE_MCP_AUTOSTART")
+    end)
+
+    {:ok, agent, binding_options} =
       LoopBindings.attach(%{status: :healthy, runtime: runtime})
 
     task_request = %Ourocode.TaskRequest{
@@ -128,21 +137,62 @@ defmodule Ourocode.OooBaselineE2ETest do
     }
 
     on_prompt_input = Keyword.fetch!(binding_options, :on_prompt_input)
-    poll = Keyword.fetch!(binding_options, :poll_runtime_event)
 
-    # No server is listening; the invoker must fail soft, not raise.
-    assert :ok == on_prompt_input.(task_request, %{}, %{status: :healthy})
+    input_event = %{active_model: scripted_interview_model()}
 
-    # Give the relay a moment to attempt the connection and enqueue a failure.
-    failure =
-      Enum.reduce_while(1..100, nil, fn _i, _acc ->
-        case poll.(%{}) do
-          {:ok, %{type: :parent_call_failed} = event} -> {:halt, event}
-          {:ok, _other} -> {:cont, nil}
-          :none -> Process.sleep(50) && {:cont, nil}
+    assert :ok == on_prompt_input.(task_request, input_event, %{status: :healthy})
+
+    snapshot =
+      Enum.reduce_while(1..400, nil, fn _i, _acc ->
+        snapshot = LoopBindings.pane_snapshot(agent)
+        question = get_in(snapshot, [:interview, :question])
+        options = get_in(snapshot, [:interview, :question_options]) || []
+
+        if is_binary(question) and String.trim(question) != "" and String.contains?(question, "?") and
+             length(options) >= 2 do
+          {:halt, snapshot}
+        else
+          Process.sleep(50)
+          {:cont, nil}
         end
       end)
 
-    assert %{type: :parent_call_failed, parent_call_id: "parent-e2e-fail-1"} = failure
+    assert snapshot, "local fallback did not surface a visible interview question"
+
+    assert %{
+             interview: %{
+               question: question,
+               question_options: [_first | _rest] = options,
+               status: "waiting for your answer"
+             },
+             wonder_tool: %{question_count: 1} = wonder_tool
+           } = snapshot
+
+    assert length(options) >= 2
+    assert [%{question: ^question} | _rest] = get_in(wonder_tool, [:request, :questions])
+  end
+
+  defp scripted_interview_model do
+    %Ourocode.Model{
+      id: :codex,
+      label: "codex  (test)",
+      kind: :oauth,
+      status: :ready,
+      run: fn prompt, _opts, on_chunk ->
+        question =
+          if String.contains?(prompt, "MCP UI"),
+            do: "What should the MCP UI clarify first?",
+            else: "What should this interview clarify first?"
+
+        output = """
+        ASK_USER #{question}
+        - User flow | Clarify the path a user should complete
+        - Success signal | Define what proves the UI works
+        """
+
+        on_chunk.(output)
+        {:ok, output}
+      end
+    }
   end
 end

@@ -22,13 +22,14 @@ defmodule Ourocode.Runtime.InterviewProgress do
         prev
         |> Map.merge(%{
           parent_call_id: parent_call_id,
-          question: Map.get(prev, :question, ""),
+          question: "",
           waiting_started_monotonic_ms: monotonic_ms(),
           waiting: true,
           status: "starting interview session",
           dialogue: dialogue
         })
         |> Map.delete(:answered)
+        |> Map.delete(:question_options)
 
       session = %{
         parent_call_id: parent_call_id,
@@ -38,7 +39,7 @@ defmodule Ourocode.Runtime.InterviewProgress do
       }
 
       state
-      |> Map.merge(%{interview: iv, interview_session: session, paused: false})
+      |> Map.merge(%{interview: iv, interview_session: session, paused: false, wonder: nil})
     end)
   end
 

@@ -37,7 +37,7 @@ defmodule Ourocode.CLI do
   alias Ourocode.Runtime.LoopBindingInterviewSessionIO
   alias Ourocode.Runtime.LoopBindings
 
-  @version "0.1.13"
+  @version "0.1.14"
 
   @doc """
   Escript entry point.
@@ -3237,6 +3237,13 @@ defmodule Ourocode.CLI do
   end
 
   defp workflow_help_prompt?(_task_request), do: false
+
+  defp workflow_mode(%{routing_decision: %{adapter_route: :pm}}), do: :pm
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "pm"}}), do: :pm
+  defp workflow_mode(%{routing_decision: %{adapter_route: :interview}}), do: :interview
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "interview"}}), do: :interview
+  defp workflow_mode(%{routing_decision: %{adapter_route: :auto}}), do: :auto
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "auto"}}), do: :auto
 
   defp workflow_mode(%{task_input: input}) when is_binary(input) do
     normalized = input |> String.trim() |> String.downcase()

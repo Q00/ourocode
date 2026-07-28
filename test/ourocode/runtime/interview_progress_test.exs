@@ -30,7 +30,15 @@ defmodule Ourocode.Runtime.InterviewProgressTest do
   test "does not open an optimistic PM picker before the transport is ready" do
     {:ok, agent} =
       Agent.start_link(fn ->
-        %{interview: nil, interview_session: nil, wonder: nil, paused: true}
+        %{
+          interview: %{
+            question: "Which package manager?",
+            question_options: [%{label: "npm", description: "Node default"}]
+          },
+          interview_session: nil,
+          wonder: %{request_id: "stale-picker"},
+          paused: true
+        }
       end)
 
     on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
@@ -46,6 +54,7 @@ defmodule Ourocode.Runtime.InterviewProgressTest do
     assert state.interview.waiting == true
     assert state.interview.status == "starting interview session"
     assert state.interview.question == ""
+    refute Map.has_key?(state.interview, :question_options)
   end
 
   test "marks interview waiting rounds with stable status text" do

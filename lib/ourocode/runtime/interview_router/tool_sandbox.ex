@@ -25,9 +25,9 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandbox do
       :ok ->
         hits =
           root
-          |> Path.join(pat)
+          |> wildcard_path(pat)
           |> Path.wildcard()
-          |> Enum.map(&Path.relative_to(&1, root))
+          |> Enum.map(&relative_path(&1, root))
           |> Enum.take(@max_glob_hits)
 
         body = if hits == [], do: "(no matches)", else: Enum.join(hits, "\n")
@@ -56,28 +56,65 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandbox do
   def run(_tool, arg, _root), do: {"UNKNOWN #{inspect(arg)}", "rejected: unknown tool"}
 
   defp bounded_grep(pattern, glob, root) do
-    args =
-      ["-rnI", "--"]
-      |> then(fn base -> if glob, do: ["--include=" <> glob | base], else: base end)
-      |> Kernel.++([pattern, "."])
-
-    task =
-      Task.async(fn ->
-        System.cmd("grep", args, cd: root, stderr_to_stdout: true)
-      end)
+    task = Task.async(fn -> elixir_grep(pattern, glob, root) end)
 
     case Task.yield(task, @grep_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {out, status}} when status in [0, 1] ->
+      {:ok, out} ->
         if String.trim(out) == "", do: "(no matches)", else: cap_bytes(out, @max_grep_bytes)
-
-      {:ok, {out, _status}} ->
-        "error: " <> cap_bytes(out, 256)
 
       _timeout_or_crash ->
         "error: grep timed out"
     end
-  rescue
-    _exception -> "error: grep unavailable"
+  end
+
+  defp elixir_grep(pattern, glob, root) do
+    matcher = grep_matcher(pattern)
+
+    root
+    |> grep_files(glob)
+    |> Enum.flat_map(&grep_file(&1, root, matcher))
+    |> Enum.join("\n")
+  end
+
+  defp grep_matcher(pattern) do
+    case Regex.compile(pattern) do
+      {:ok, regex} -> &Regex.match?(regex, &1)
+      {:error, _reason} -> &String.contains?(&1, pattern)
+    end
+  end
+
+  defp grep_files(root, nil) do
+    root
+    |> wildcard_path("**/*")
+    |> Path.wildcard()
+    |> Enum.filter(&File.regular?/1)
+  end
+
+  defp grep_files(root, glob) do
+    if String.contains?(glob, "/") do
+      root
+      |> wildcard_path(glob)
+      |> Path.wildcard()
+    else
+      root
+      |> wildcard_path("**/" <> glob)
+      |> Path.wildcard()
+    end
+    |> Enum.filter(&File.regular?/1)
+  end
+
+  defp grep_file(path, root, matcher) do
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n")
+        |> Enum.with_index(1)
+        |> Enum.filter(fn {line, _index} -> matcher.(line) end)
+        |> Enum.map(fn {line, index} -> "#{relative_path(path, root)}:#{index}:#{line}" end)
+
+      {:error, _reason} ->
+        []
+    end
   end
 
   defp split_grep_arg(arg) do
@@ -140,6 +177,18 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandbox do
   end
 
   defp safe_relative?(_path), do: {:error, "invalid path"}
+
+  defp wildcard_path(root, pattern) do
+    root
+    |> Path.join(pattern)
+    |> String.replace("\\", "/")
+  end
+
+  defp relative_path(path, root) do
+    path
+    |> Path.relative_to(root)
+    |> String.replace("\\", "/")
+  end
 
   defp cap_bytes(bin, limit) when byte_size(bin) <= limit, do: bin
 

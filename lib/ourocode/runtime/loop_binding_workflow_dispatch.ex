@@ -10,6 +10,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   alias Ourocode.Runtime.{
     Dispatcher,
     InterviewProgress,
+    LocalInterviewFallback,
     InterviewWorkflowInvocation,
     LoopBindingEventFlow,
     McpDaemonBinding,
@@ -263,6 +264,21 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
       else
         {:ok, mcp_url} = McpDaemonBinding.ensure(agent, model)
 
+        if local_interview_fallback_enabled?(callbacks) and
+             interview_task?(task_request) and
+             LocalInterviewFallback.unavailable?(mcp_daemon(agent)) do
+          LocalInterviewFallback.start(
+            agent,
+            task_request,
+            parent_call_id,
+            workflow_run_id,
+            model,
+            project_dir(runtime)
+          )
+
+          throw(:local_interview_fallback_started)
+        end
+
         %{
           streamable_http_url: mcp_url,
           workflow_run_id: workflow_run_id,
@@ -309,6 +325,17 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
         "parent-" <> to_string(task_request.id),
         {:dispatch_exception, Exception.message(exception)}
       )
+  catch
+    :local_interview_fallback_started ->
+      :ok
+  end
+
+  defp mcp_daemon(agent) do
+    Agent.get(agent, &Map.get(&1, :mcp_daemon))
+  end
+
+  defp local_interview_fallback_enabled?(callbacks) do
+    Map.get(callbacks, :local_interview_fallback?, true)
   end
 
   defp transport_invoker(agent, runtime, parent_call_id, workflow_run_id, model, callbacks) do

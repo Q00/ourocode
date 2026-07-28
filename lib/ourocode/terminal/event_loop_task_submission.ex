@@ -166,6 +166,13 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmission do
   defp workflow_mode(%{routing_decision: %{execution_route: :user_level_plugin}}),
     do: :user_level_plugin
 
+  defp workflow_mode(%{routing_decision: %{adapter_route: :pm}}), do: :pm
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "pm"}}), do: :pm
+  defp workflow_mode(%{routing_decision: %{adapter_route: :interview}}), do: :interview
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "interview"}}), do: :interview
+  defp workflow_mode(%{routing_decision: %{adapter_route: :auto}}), do: :auto
+  defp workflow_mode(%{routing_decision: %{"adapter_route" => "auto"}}), do: :auto
+
   defp workflow_mode(%{task_input: input}) when is_binary(input) do
     normalized = input |> String.trim() |> String.downcase()
 

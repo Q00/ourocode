@@ -75,6 +75,14 @@ defmodule Ourocode.Runtime.RouteTerms do
       Enum.any?(tokens, &String.starts_with?(&1, "ouroboros:"))
   end
 
+  @spec product_goal?(String.t(), [String.t()]) :: boolean()
+  def product_goal?(input, tokens) when is_binary(input) and is_list(tokens) do
+    normalized = input |> normalize() |> String.downcase()
+    route_tokens = if tokens == [], do: tokens(normalized), else: tokens
+
+    product_term?(normalized, route_tokens) and creation_intent?(normalized, route_tokens)
+  end
+
   @spec ouroboros_adapter_route([String.t()]) ::
           :auto
           | :interview
@@ -179,6 +187,16 @@ defmodule Ourocode.Runtime.RouteTerms do
 
   defp explicit_ouroboros_run?(tokens),
     do: Enum.any?(tokens, &(&1 in ["ouroboros:run", "ouroboros:execute"]))
+
+  defp product_term?(normalized, tokens) do
+    Enum.any?(tokens, &(&1 in ["saas", "product", "service", "app", "mvp", "startup"])) or
+      String.contains?(normalized, ["서비스", "제품", "앱", "어플", "스타트업"])
+  end
+
+  defp creation_intent?(normalized, tokens) do
+    Enum.any?(tokens, &(&1 in ["build", "create", "make", "design", "launch", "plan", "idea"])) or
+      String.contains?(normalized, ["만들", "기획", "제작", "출시", "런칭", "구상"])
+  end
 
   defp status_terms?(["ooo", "status" | _tokens]), do: true
   defp status_terms?(["ouroboros", "status" | _tokens]), do: true

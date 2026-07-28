@@ -12,6 +12,59 @@ defmodule Ourocode.Terminal.InterviewPanel.TextTest do
     assert Text.flatten_line("**Hello**\n\n`world`") == "Hello world"
   end
 
+  test "flatten_line keeps Korean PM option text while stripping unstable glyphs" do
+    option =
+      <<234, 176>> <>
+        " - " <>
+        hangul([0xC778]) <>
+        " " <>
+        hangul([0xD074, 0xB9AC, 0xC5D0, 0xC774, 0xD130]) <>
+        " | " <>
+        hangul([0xC778, 0xC2A4, 0xD0C0, 0xADF8, 0xB7A8]) <>
+        ", " <>
+        hangul([0xBE14, 0xB85C, 0xADF8]) <>
+        ", " <>
+        hangul([0xB274, 0xC2A4, 0xB808, 0xD130]) <>
+        hangul([0xC6A9]) <>
+        " " <>
+        hangul([0xCF58, 0xD150, 0xCE20]) <>
+        hangul([0xB97C]) <>
+        " " <>
+        hangul([0xD63C, 0xC790]) <>
+        " " <>
+        hangul([0xBE60, 0xB974, 0xAC8C]) <>
+        " " <>
+        hangul([0xB9CC, 0xB4DC, 0xB294]) <>
+        " " <>
+        hangul([0xC0AC, 0xB78C]) <>
+        " " <>
+        <<0x1F44B::utf8>>
+
+    assert Text.flatten_line(option) ==
+             "- " <>
+               hangul([0xC778]) <>
+               " " <>
+               hangul([0xD074, 0xB9AC, 0xC5D0, 0xC774, 0xD130]) <>
+               " | " <>
+               hangul([0xC778, 0xC2A4, 0xD0C0, 0xADF8, 0xB7A8]) <>
+               ", " <>
+               hangul([0xBE14, 0xB85C, 0xADF8]) <>
+               ", " <>
+               hangul([0xB274, 0xC2A4, 0xB808, 0xD130]) <>
+               hangul([0xC6A9]) <>
+               " " <>
+               hangul([0xCF58, 0xD150, 0xCE20]) <>
+               hangul([0xB97C]) <>
+               " " <>
+               hangul([0xD63C, 0xC790]) <>
+               " " <>
+               hangul([0xBE60, 0xB974, 0xAC8C]) <>
+               " " <>
+               hangul([0xB9CC, 0xB4DC, 0xB294]) <>
+               " " <>
+               hangul([0xC0AC, 0xB78C])
+  end
+
   test "plain_line only collapses whitespace" do
     assert Text.plain_line(" **Hello**\n world ") == "**Hello** world"
   end
@@ -41,7 +94,9 @@ defmodule Ourocode.Terminal.InterviewPanel.TextTest do
   test "keeps deliberate Hangul word boundaries when the source has wider gaps" do
     first = hangul([0xC778, 0xD130, 0xBDF0])
     second = hangul([0xD50C, 0xB85C, 0xC6B0])
-    spaced = Enum.join(String.graphemes(first), " ") <> "  " <> Enum.join(String.graphemes(second), " ")
+
+    spaced =
+      Enum.join(String.graphemes(first), " ") <> "  " <> Enum.join(String.graphemes(second), " ")
 
     assert Text.md_text(spaced) == first <> " " <> second
   end
@@ -106,7 +161,8 @@ defmodule Ourocode.Terminal.InterviewPanel.TextTest do
       |> String.graphemes()
       |> Enum.join(" ")
 
-    assert Text.md_text(spaced) == Enum.join([first, second, third, fourth, fifth, sixth, seventh], " ")
+    assert Text.md_text(spaced) ==
+             Enum.join([first, second, third, fourth, fifth, sixth, seventh], " ")
   end
 
   test "restores quality and execution phrase boundaries after compacting a model-spaced option" do

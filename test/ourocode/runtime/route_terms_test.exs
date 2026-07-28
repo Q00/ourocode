@@ -66,6 +66,16 @@ defmodule Ourocode.Runtime.RouteTermsTest do
     assert RouteTerms.ouroboros_adapter_route(["ooo", "build", "me", "a", "thing"]) == :interview
   end
 
+  test "detects natural product goals for PM interview routing" do
+    input = "카드 뉴스를 만들어주는 나만의 SaaS를 만들고 싶어"
+
+    assert RouteTerms.product_goal?(input, RouteTerms.tokens(input))
+    assert RouteTerms.product_goal?("Build a SaaS that turns blog posts into card news", [])
+
+    refute RouteTerms.product_goal?("Fix the renderer state bug", ["fix", "the", "renderer"])
+    refute RouteTerms.product_goal?("git status", ["git", "status"])
+  end
+
   test "does not treat plain run commands as implicit Ouroboros workflow" do
     refute RouteTerms.ouroboros_workflow?(["run", "the", "unit", "tests"])
     refute RouteTerms.ouroboros_workflow?(["git", "status"])

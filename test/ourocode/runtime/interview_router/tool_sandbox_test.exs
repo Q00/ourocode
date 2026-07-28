@@ -49,7 +49,7 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandboxTest do
 
   test "read rejects symlink escapes below the project root" do
     root = sandbox_dir!()
-    File.ln_s!("/etc", Path.join(root, "escape"))
+    link_escape!(root, "escape")
 
     assert {"READ escape/passwd", "rejected: symlinked path not allowed in sandbox"} =
              ToolSandbox.run(:read, "escape/passwd", root)
@@ -95,8 +95,54 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandboxTest do
         "ourocode-router-sandbox-#{System.unique_integer([:positive])}"
       )
 
+    remove_sandbox_root(root)
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> remove_sandbox_root(root) end)
     root
   end
+
+  defp link_escape!(root, name) do
+    link_path = Path.join(root, name)
+    remove_escape_link(link_path)
+
+    if match?({:win32, _}, :os.type()) do
+      target =
+        Path.join(
+          System.tmp_dir!(),
+          "ourocode-router-sandbox-target-#{System.unique_integer([:positive])}"
+        )
+
+      File.rm_rf!(target)
+      File.mkdir_p!(target)
+      on_exit(fn -> File.rm_rf(target) end)
+      on_exit(fn -> remove_escape_link(link_path) end)
+
+      {out, status} =
+        System.cmd(
+          "cmd",
+          ["/d", "/c", "mklink", "/J", windows_path(link_path), windows_path(target)],
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, out
+    else
+      File.ln_s!("/etc", link_path)
+      on_exit(fn -> remove_escape_link(link_path) end)
+    end
+  end
+
+  defp remove_sandbox_root(root) do
+    remove_escape_link(Path.join(root, "escape"))
+    File.rm_rf(root)
+  end
+
+  defp remove_escape_link(path) do
+    if match?({:win32, _}, :os.type()) do
+      System.cmd("cmd", ["/d", "/c", "rmdir", windows_path(path)], stderr_to_stdout: true)
+    else
+      File.rm(path)
+    end
+  end
+
+  defp windows_path(path), do: path |> Path.expand() |> String.replace("/", "\\")
 end

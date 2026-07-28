@@ -140,6 +140,16 @@ defmodule Ourocode.Runtime.RouteClassifier do
           ouroboros_adapter_route
         )
 
+      RouteTerms.product_goal?(task_input, tokens) ->
+        route(
+          :ouroboros_workflow,
+          :ouroboros,
+          RouteTerms.transport_from_tokens(tokens),
+          false,
+          :product_goal_terms,
+          :pm
+        )
+
       true ->
         route(
           :runtime,

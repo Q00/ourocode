@@ -140,6 +140,11 @@ defmodule Ourocode.Runtime.InterviewEvents do
       |> Map.put(:seed_ready, true)
       |> Map.put(:complete, reason)
       |> Map.put(:waiting, false)
+      |> Map.put(:status, "interview complete: #{reason}")
+      |> Map.put(:question, "")
+      |> Map.delete(:question_options)
+      |> Map.delete(:answered)
+      |> Map.delete(:waiting_started_monotonic_ms)
 
     %{state | interview: interview, interview_session: nil, interview_waiter: nil}
   end

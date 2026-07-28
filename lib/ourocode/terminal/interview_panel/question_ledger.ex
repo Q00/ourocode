@@ -153,6 +153,9 @@ defmodule Ourocode.Terminal.InterviewPanel.QuestionLedger do
       text == "" ->
         {blocks, current}
 
+      role == :mcp and completion_turn?(text) ->
+        {finish_block(blocks, current), nil}
+
       role == :mcp ->
         {finish_block(blocks, current), new_block(text)}
 
@@ -180,6 +183,17 @@ defmodule Ourocode.Terminal.InterviewPanel.QuestionLedger do
       choices: [],
       source: :dialogue
     }
+  end
+
+  defp completion_turn?(text) do
+    text = String.downcase(text)
+
+    String.contains?(text, "interview complete") or
+      String.contains?(text, "interview completed") or
+      String.contains?(text, "local interview fallback complete") or
+      String.contains?(text, "ai interview fallback complete") or
+      String.contains?(text, "ready for seed generation") or
+      String.contains?(text, "ooo seed")
   end
 
   defp append_transition_block(blocks, %{waiting: true, last_answer: answer} = interview)

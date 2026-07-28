@@ -32,6 +32,7 @@ defmodule Ourocode.Terminal.InterviewPanel.Text do
   def md_text(text) do
     text
     |> to_string()
+    |> scrub_invalid_utf8()
     |> String.replace(~r/(\*\*|__)(.*?)\1/s, "\\2")
     |> String.replace(~r/(\*|_)(.*?)\1/s, "\\2")
     |> String.replace(~r/`([^`]+)`/, "\\1")
@@ -55,6 +56,7 @@ defmodule Ourocode.Terminal.InterviewPanel.Text do
   def plain_line(text) do
     text
     |> to_string()
+    |> scrub_invalid_utf8()
     |> repair_hangul_syllable_spacing()
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
@@ -63,7 +65,24 @@ defmodule Ourocode.Terminal.InterviewPanel.Text do
   defp strip_unstable_glyphs(text) do
     text
     |> String.replace(~r/[\x{FFFD}\x{FE0E}\x{FE0F}\x{200D}]/u, "")
-    |> String.replace(~r/[\x{1F000}-\x{1FAFF}]/u, "")
+    |> strip_supplemental_symbols()
+  end
+
+  defp scrub_invalid_utf8(text) do
+    String.replace_invalid(text, "")
+  end
+
+  defp strip_supplemental_symbols(text) do
+    text
+    |> String.graphemes()
+    |> Enum.reject(&supplemental_symbol?/1)
+    |> Enum.join()
+  end
+
+  defp supplemental_symbol?(grapheme) do
+    grapheme
+    |> String.to_charlist()
+    |> Enum.any?(&(&1 in 0x1F000..0x1FAFF))
   end
 
   defp repair_hangul_syllable_spacing(text) do

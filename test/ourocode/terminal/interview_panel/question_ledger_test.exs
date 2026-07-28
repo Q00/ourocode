@@ -83,6 +83,27 @@ defmodule Ourocode.Terminal.InterviewPanel.QuestionLedgerTest do
     assert {"- [pending] Q1 Current question", :strong} in rows
   end
 
+  test "does not render completion notices as pending questions" do
+    interview = %{
+      complete: :local_preview,
+      dialogue: [
+        %{role: :mcp, text: "AI interview fallback complete - run ooo seed when ready"},
+        %{role: :user, text: "Accounts and sharing"},
+        %{role: :mcp, text: "What should stay out of scope?"}
+      ]
+    }
+
+    assert %{blocks: [%{question: "What should stay out of scope?", status: :answered}]} =
+             QuestionLedger.from_interview(interview)
+
+    rows = QuestionLedger.rows(interview)
+
+    refute Enum.any?(
+             rows,
+             &match?({"- [pending] Q1 AI interview fallback complete" <> _, _}, &1)
+           )
+  end
+
   test "rows keep previous answers above an active picker without duplicating current question" do
     interview = %{
       dialogue: [

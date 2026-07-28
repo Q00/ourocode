@@ -95,6 +95,19 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
            } = RouteClassifier.routing_decision("Run Ouroboros workflow evolve")
   end
 
+  test "classifies natural product SaaS goals as PM interview workflow" do
+    assert %{
+             kind: :ouroboros_workflow,
+             execution_route: :ouroboros_workflow,
+             runtime_source: :ouroboros,
+             transport: :auto,
+             requires_command_syntax?: false,
+             advanced_shortcut?: false,
+             reason: :product_goal_terms,
+             adapter_route: :pm
+           } = RouteClassifier.routing_decision("카드 뉴스를 만들어주는 나만의 SaaS를 만들고 싶어")
+  end
+
   test "classifies explicit runtime shortcuts" do
     assert %{
              execution_route: :runtime,
