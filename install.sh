@@ -14,10 +14,14 @@ REPO="${OUROCODE_REPO:-Ouro-labs/ourocode}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DOWNLOAD_TMP=""
+CUA_TMP=""
 
 cleanup() {
   if [ -n "$DOWNLOAD_TMP" ] && [ -d "$DOWNLOAD_TMP" ]; then
     rm -rf "$DOWNLOAD_TMP"
+  fi
+  if [ -n "$CUA_TMP" ] && [ -d "$CUA_TMP" ]; then
+    rm -rf "$CUA_TMP"
   fi
 }
 trap cleanup EXIT
@@ -318,6 +322,42 @@ if [ "${OUROCODE_SKIP_OUROBOROS:-0}" != "1" ]; then
       && echo "    MCP extra ensured via pip." \
       || echo "    warning: pip mcp-ensure failed" >&2
   fi
+fi
+
+# CUA is an optional macOS-only capability. Install the pinned native server,
+# overlay, and the small MCP era-compatibility bridge into the same user bin
+# directory Ourocode's managed launchd service already exposes to its bridge.
+if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ] \
+  && [ "${OUROCODE_SKIP_CUA:-0}" != "1" ]; then
+  CUA_VERSION_VALUE="${CUA_VERSION:-v0.9.1}"
+  CUA_ASSET_BASE="https://github.com/maestrojeong/cua-rs-mcp/releases/download/${CUA_VERSION_VALUE}"
+  CUA_TMP="$(mktemp -d)"
+  echo "==> installing CUA ${CUA_VERSION_VALUE} (best effort)"
+  if curl -fsSL "${CUA_ASSET_BASE}/cua-rs-macos-arm64" -o "$CUA_TMP/cua-rs" \
+    && curl -fsSL "${CUA_ASSET_BASE}/cua-overlay-macos-arm64" -o "$CUA_TMP/cua-overlay" \
+    && printf '%s  %s\n' \
+      '5d3e2a6eafd18a9a0a6e6137f3dfa471965512591752bb0a456a844ed9db4ebf' "$CUA_TMP/cua-rs" \
+      '1b68863c44048ba6dfa626ef09d6f5b91b958764522580b6098b9fbee800f040' "$CUA_TMP/cua-overlay" \
+      | shasum -a 256 -c - >/dev/null; then
+    install -m 755 "$CUA_TMP/cua-rs" "$BIN_DIR/cua-rs"
+    install -m 755 "$CUA_TMP/cua-overlay" "$BIN_DIR/cua-overlay"
+    install -m 755 "$ROOT/scripts/ourocode-cua-mcp-bridge" "$BIN_DIR/ourocode-cua-mcp-bridge"
+    xattr -d com.apple.quarantine "$BIN_DIR/cua-rs" "$BIN_DIR/cua-overlay" 2>/dev/null || true
+    echo "    CUA installed. Grant Accessibility and Screen Recording to Ourocode."
+  else
+    echo "    warning: CUA download or checksum verification failed; Ourocode still runs without CUA" >&2
+  fi
+fi
+
+# macOS privacy grants cannot be pre-approved by a shell installer. When a
+# final Applications bundle is already present, launch that exact signed app
+# into its one-time onboarding surface; temporary build paths must never claim
+# TCC identity or trigger protected-folder prompts on its behalf.
+if [ "$(uname -s)" = "Darwin" ] && [ -d "/Applications/Ourocode.app" ] \
+  && [ "${OUROCODE_SKIP_PERMISSION_ONBOARDING:-0}" != "1" ]; then
+  echo "==> opening Ourocode permission onboarding"
+  open "/Applications/Ourocode.app" --args --onboarding \
+    || echo "    warning: open Ourocode and choose Settings → Computer Use to finish permissions" >&2
 fi
 
 echo ""

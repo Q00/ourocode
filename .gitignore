@@ -5,6 +5,11 @@
 /.elixir_ls/
 
 /rust/ourocode_ipc/target/
+/target/
+/crates/*/target/
+/crates/*/Cargo.lock
+/apps/macos/OurocodeDesktop/.build/
+/apps/macos/OurocodeDesktop/dist/
 
 # Build artifact (escript) — produced by `mix escript.build`
 /ourocode
@@ -18,3 +23,11 @@
 .om*/
 *.dump
 docs/rubrics/
+
+/.DS_Store
+**/.DS_Store
+/.improve/
+/.ouroboros/
+/.qa-evidence/
+/apps/macos/OurocodeDesktop/qa-evidence/
+**/__pycache__/

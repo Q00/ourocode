@@ -25,6 +25,50 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.Session do
     end
   end
 
+  @spec open_owned(String.t(), keyword(), String.t(), pos_integer()) ::
+          {:ok, keyword(), boolean()}
+  def open_owned(url, options, protocol_version, default_timeout) do
+    existing? = has_header?(options, "mcp-session-id")
+
+    case ensure(url, options, protocol_version, default_timeout) do
+      {:ok, ensured} ->
+        owned? = not existing? and has_header?(ensured, "mcp-session-id")
+        {:ok, ensured, owned?}
+    end
+  end
+
+  @spec terminate(String.t(), keyword(), pos_integer()) :: :ok
+  def terminate(url, options, default_timeout) when is_binary(url) and is_list(options) do
+    case options |> Keyword.get(:headers, []) |> header_value("mcp-session-id") do
+      nil ->
+        :ok
+
+      session_id ->
+        timeout = Keyword.get(options, :timeout, default_timeout)
+
+        headers = [
+          {~c"mcp-session-id", String.to_charlist(session_id)},
+          {~c"mcp-protocol-version",
+           String.to_charlist(
+             header_value(Keyword.get(options, :headers, []), "mcp-protocol-version") ||
+               "2025-06-18"
+           )}
+        ]
+
+        _ =
+          :httpc.request(
+            :delete,
+            {String.to_charlist(url), headers},
+            [timeout: timeout, connect_timeout: timeout],
+            body_format: :binary
+          )
+
+        :ok
+    end
+  rescue
+    _exception -> :ok
+  end
+
   @spec has_header?(keyword(), String.t()) :: boolean()
   def has_header?(options, name) when is_list(options) and is_binary(name) do
     normalized_name = String.downcase(name)

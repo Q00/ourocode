@@ -1,26 +1,49 @@
 # Ourocode
 
-![Ourocode TUI demo](docs/assets/ourocode-tui-demo.gif)
+Ourocode is a terminal-first desktop app. Local shells remain the primary
+surface; MCP v2 sources appear alongside them, and Ouroboros session fanout is
+projected as grouped sessions when that source is connected. Browsing is
+read-only by default; message controls appear only after the terminal broker
+advertises authenticated authority for an exact live attempt. The terminal
+continues to work when Ouroboros is absent.
 
-Ourocode is a terminal workbench for planning real work, delegating it to guided agents, and verifying the result without leaving your shell. It gives you a fast keyboard UI, structured interviews with selectable answers, active-work views, connected-tool checks, and JSON evidence for automation.
+The native macOS app is the product under active development. Its architecture
+and completion gates live in
+[`RFC 0001`](docs/rfcs/0001-ourocode-desktop-terminal.md). The existing Elixir
+TUI remains a compatibility client and protocol fixture source; it is not the
+desktop architecture.
+
+## Quick Start on macOS
+
+The release experience is a signed, notarized DMG: drag `Ourocode.app` to
+Applications and open it like any other Mac app. Ourocode starts as a normal
+terminal with the account login shell and reads `.zprofile` and `.zshrc`.
+Ouroboros is an optional MCP Source; the terminal continues to work when it is
+not connected.
+
+Ouroboros can also receive native macOS Computer Use tools from the pinned
+`cua-rs` bridge. On Apple silicon, `install.sh` installs `cua-rs` 0.9.1, its
+click-through overlay, and Ourocode's MCP compatibility helper after verifying
+both upstream SHA-256 digests. Set `OUROCODE_SKIP_CUA=1` to skip it. Grant
+Accessibility and Screen Recording in macOS Settings, then reopen Ourocode;
+Settings → Computer Use shows the exact readiness state.
+
+Until a notarized release is published, build the development app locally:
+
+```bash
+./apps/macos/OurocodeDesktop/build-app.sh
+./apps/macos/OurocodeDesktop/run-canonical-app.sh
+```
+
+The Ghostty/Metal development surface requires the audited static Ghostty v6
+prefix described in
+[`apps/macos/OurocodeDesktop/README.md`](apps/macos/OurocodeDesktop/README.md).
 
 Product site draft: [docs/site](docs/site/index.html)
 
-The current release supports local macOS and Linux (x86_64/arm64) development and guided workflow testing.
+## Legacy TUI
 
-## What It Does
-
-- Starts structured work with `ooo pm <goal>` and keeps the first useful choice visible quickly.
-- Shows delegated work with task, state, current output, and actions.
-- Turns interview checkpoints into focused pickers with number keys, custom answers, pause, and cancel.
-- Exposes `/agents`, `/sessions`, `/mcps`, `/config`, `/sandbox`, and `/verify` as product surfaces, not only debug logs.
-- Runs headless with `--prompt` and `--format json` for scripts, CI, and remote operators.
-- Supports command discovery with `/`, `ooo`, `@file`, and prompt overlays.
-- Writes current visual verification captures to `docs/assets/visual/` when
-  `/verify` or `--verify` runs, including first start, PM picker, agents,
-  cancel, verify, theme, and README media.
-
-## Quick Start
+The compatibility TUI can still be installed on macOS or Linux:
 
 Install the latest prerelease build on macOS or Linux:
 
@@ -302,6 +325,21 @@ Key areas:
 - `rust/ourocode_ipc/` - native tty helper
 
 ## Development
+
+### Experimental macOS desktop terminal
+
+RFC [#58](https://github.com/Ouro-labs/ourocode/issues/58) starts the native desktop-terminal line. The first slice is a real AppKit + Metal local terminal, not a webview or dashboard mock:
+
+```bash
+./apps/macos/OurocodeDesktop/build-app.sh
+./apps/macos/OurocodeDesktop/run-canonical-app.sh -- --project-dir "$PWD"
+```
+
+See [`apps/macos/OurocodeDesktop/README.md`](apps/macos/OurocodeDesktop/README.md),
+[`RFC 0001`](docs/rfcs/0001-ourocode-desktop-terminal.md), the exact-pin
+Ghostty [engine gate](docs/rfcs/0002-libghostty-gate0.md), and the
+[broker-v4 recovery contract](docs/rfcs/0004-broker-v4-recovery.md) for the
+current boundary and performance gates.
 
 Run tests:
 

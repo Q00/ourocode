@@ -1,0 +1,35 @@
+{
+  "schema": "ourocode.session-message.request-digest.v1",
+  "principal": {
+    "kind": "ouroboros_session",
+    "uid": 501,
+    "binding_id": "binding-a",
+    "session_id": "session-a",
+    "execution_id": "execution-1",
+    "scope_id": "scope-a",
+    "attempt_id": "attempt-a1",
+    "authority_epoch": 3,
+    "cause": null
+  },
+  "request": {
+    "version": 1,
+    "id": 42,
+    "op": "session_message_resolve_and_admit",
+    "broker_generation": 873421,
+    "authority_epoch": 3,
+    "request_nonce": "EiQ2SFpscYKTpLXNZ2mr7A",
+    "target_session_id": "session-b",
+    "expected_execution_id": "execution-1",
+    "expected_target_generation": 7,
+    "mode": "after_turn",
+    "message": "Re-check the reconnect boundary.",
+    "reason": "Session A found a stale-owner race.",
+    "expires_at": "2026-08-10T15:04:05.000Z",
+    "correlation_id": "review-17"
+  },
+  "derived": {
+    "causal_parent": null,
+    "hop_count": 1,
+    "request_digest": "sha256:fdaa6c7acd2c9b69b8aa2e406f50e98a643beeaa3821b7c3d618cdbd4f8c06b9"
+  }
+}

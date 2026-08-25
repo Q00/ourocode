@@ -1,0 +1,11 @@
+model = "gpt-5"
+
+[mcp_servers.notes]
+url = "http://127.0.0.1:7777/mcp"
+
+[mcp_servers.ouroboros]
+command = "uvx"
+args = ["ouroboros-ai==0.51.6", "ouroboros", "mcp", "serve"]
+
+[profiles.default]
+approval_policy = "never"

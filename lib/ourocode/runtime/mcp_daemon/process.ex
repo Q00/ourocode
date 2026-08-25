@@ -52,12 +52,12 @@ defmodule Ourocode.Runtime.McpDaemon.Process do
 
   @spec stop(map() | nil) :: :ok
   def stop(%{mode: :spawned} = handle) do
-    handle
-    |> Map.get(:os_pid)
-    |> terminate_os_process()
+    os_pid = Map.get(handle, :os_pid)
+    terminate_os_process(os_pid)
 
     erl_port = Map.get(handle, :port)
     if is_port(erl_port) and Port.info(erl_port) != nil, do: Port.close(erl_port)
+    ensure_process_stopped(os_pid)
     :ok
   rescue
     _exception -> :ok
@@ -102,6 +102,37 @@ defmodule Ourocode.Runtime.McpDaemon.Process do
   end
 
   defp terminate_os_process(_pid), do: :ok
+
+  defp ensure_process_stopped(pid) when is_integer(pid) and pid > 0 do
+    if windows?() do
+      :ok
+    else
+      case wait_until_stopped(pid, System.monotonic_time(:millisecond) + 300) do
+        :stopped ->
+          :ok
+
+        :alive ->
+          System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+          wait_until_stopped(pid, System.monotonic_time(:millisecond) + 700)
+          :ok
+      end
+    end
+  end
+
+  defp ensure_process_stopped(_pid), do: :ok
+
+  defp wait_until_stopped(pid, deadline) do
+    {_output, status} =
+      System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true)
+
+    cond do
+      status != 0 -> :stopped
+      System.monotonic_time(:millisecond) >= deadline -> :alive
+      true ->
+        Process.sleep(20)
+        wait_until_stopped(pid, deadline)
+    end
+  end
 
   defp windows_shell?(shell) do
     shell

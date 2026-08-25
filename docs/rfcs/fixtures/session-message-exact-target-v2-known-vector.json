@@ -1,0 +1,39 @@
+{
+  "schema": "ourocode.session-message.exact-target.request-digest.v2",
+  "principal": {
+    "kind": "ouroboros_session",
+    "uid": 501,
+    "binding_id": "binding-a",
+    "session_id": "session-a",
+    "execution_id": "execution-1",
+    "scope_id": "scope-a",
+    "attempt_id": "attempt-a1",
+    "authority_epoch": 3,
+    "cause": null
+  },
+  "request": {
+    "version": 2,
+    "id": 42,
+    "op": "session_message_resolve_and_admit_exact",
+    "broker_generation": 873421,
+    "authority_epoch": 3,
+    "request_nonce": "EiQ2SFpscYKTpLXNZ2mr7A",
+    "target": {
+      "session_id": "session-fanout",
+      "execution_id": "execution-1",
+      "scope_id": "scope-pane-b",
+      "attempt_id": "attempt-pane-b",
+      "generation": 7
+    },
+    "mode": "after_turn",
+    "message": "Re-check pane B only.",
+    "reason": "Human steering from the selected pane.",
+    "expires_at": "2026-08-10T15:04:05Z",
+    "correlation_id": "pane-b-review"
+  },
+  "derived": {
+    "causal_parent": null,
+    "hop_count": 1,
+    "request_digest": "sha256:4194f6c9db2da3339718dabfe30f0ffb04c70cfce0cd118929ff63b63839a434"
+  }
+}

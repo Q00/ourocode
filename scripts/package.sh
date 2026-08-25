@@ -33,11 +33,12 @@ mix deps.get >/dev/null 2>&1 || true
 mix escript.build
 
 rm -rf "$STAGE" "$TARBALL"
-mkdir -p "$STAGE/bin" "$STAGE/docs/assets"
+mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/docs/assets"
 
 cp ourocode "$STAGE/ourocode"
 cp bin/ourocode_tty "$STAGE/bin/ourocode_tty"
 cp install.sh "$STAGE/install.sh"
+cp scripts/ourocode-cua-mcp-bridge "$STAGE/scripts/ourocode-cua-mcp-bridge"
 cp README.md "$STAGE/README.md"
 
 if [ -f docs/assets/ourocode-readme-hero.png ]; then

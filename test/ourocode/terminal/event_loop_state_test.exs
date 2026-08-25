@@ -46,4 +46,12 @@ defmodule Ourocode.Terminal.EventLoopStateTest do
     assert :ok = state.on_focus_event.(%{}, %{})
     assert :ok = state.on_release_resources.(%{}, %{})
   end
+
+  test "remember retains only the newest bounded history" do
+    history = Enum.reduce(1..750, [], fn event, acc -> EventLoopState.remember(acc, event) end)
+
+    assert length(history) == EventLoopState.history_limit()
+    assert hd(history) == 750
+    assert List.last(history) == 251
+  end
 end

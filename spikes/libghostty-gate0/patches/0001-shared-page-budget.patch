@@ -1,0 +1,2121 @@
+diff --git a/include/ghostty/vt/snapshot.h b/include/ghostty/vt/snapshot.h
+index fb09d24..952029c 100644
+--- a/include/ghostty/vt/snapshot.h
++++ b/include/ghostty/vt/snapshot.h
+@@ -138,6 +138,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
+    */
+   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
+ 
++  /**
++   * Shared page-mapping budget used by terminal state restored from this
++   * decoder. The decoder retains the handle until it is freed.
++   *
++   * Input type: GhosttyPageBudget *
++   */
++  GHOSTTY_SNAPSHOT_DECODER_OPT_PAGE_BUDGET = 1,
++
+   GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttySnapshotDecoderOption;
+ 
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index 2c78397..15922c6 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -1474,9 +1474,61 @@ typedef enum GHOSTTY_ENUM_TYPED {
+    * Input/output type: GhosttyTerminalModeConfig *
+    */
+   GHOSTTY_TERMINAL_DATA_MODE = 37,
++
++  /** Terminal-local page allocation failure epoch. Output type: size_t *. */
++  GHOSTTY_TERMINAL_DATA_PAGE_BUDGET_FAILURE_EPOCH = 38,
++
++  /** Last terminal-local page allocation failure. Output type: GhosttyPageBudgetFailure *. */
++  GHOSTTY_TERMINAL_DATA_PAGE_BUDGET_LAST_FAILURE = 39,
+   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttyTerminalData;
+ 
++/** Reason for the most recent page-budget adapter allocation failure. */
++typedef enum GHOSTTY_ENUM_TYPED {
++  GHOSTTY_PAGE_BUDGET_FAILURE_NONE = 0,
++  GHOSTTY_PAGE_BUDGET_FAILURE_EXHAUSTED = 1,
++  GHOSTTY_PAGE_BUDGET_FAILURE_CHILD_OUT_OF_MEMORY = 2,
++  GHOSTTY_PAGE_BUDGET_FAILURE_INVALID_SIZE = 3,
++  GHOSTTY_PAGE_BUDGET_FAILURE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
++} GhosttyPageBudgetFailure;
++
++/** Options used by ghostty_terminal_new_with_options(). */
++typedef struct {
++  /** ABI size. Initialize with GHOSTTY_INIT_SIZED. */
++  size_t size;
++
++  /** Borrowed shared page budget, or NULL for unlimited page mappings. */
++  GhosttyPageBudget page_budget;
++
++  /** Optional result written when creation fails due to page allocation. */
++  GhosttyPageBudgetFailure* page_budget_failure_out;
++} GhosttyTerminalCreateOptions;
++
++/** Snapshot of shared page-mapping budget accounting. */
++typedef struct {
++  /** ABI size. Initialize with GHOSTTY_INIT_SIZED. */
++  size_t size;
++  size_t limit_bytes;
++  size_t reserved_bytes;
++  size_t peak_reserved_bytes;
++  size_t denial_count;
++  size_t child_failure_count;
++} GhosttyPageBudgetStats;
++
++/** Create a shared hard accounting budget for terminal page mappings. */
++GHOSTTY_API GhosttyResult ghostty_page_budget_new(
++    const GhosttyAllocator* allocator,
++    GhosttyPageBudget* budget,
++    size_t limit_bytes);
++
++/** Release one caller-owned page budget reference. */
++GHOSTTY_API void ghostty_page_budget_free(GhosttyPageBudget budget);
++
++/** Read atomic page budget accounting statistics. */
++GHOSTTY_API GhosttyResult ghostty_page_budget_get_stats(
++    GhosttyPageBudget budget,
++    GhosttyPageBudgetStats* stats);
++
+ /**
+  * Create a new terminal instance.
+  *
+@@ -1497,6 +1549,19 @@ GHOSTTY_API GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator
+                                                uint16_t cols,
+                                                uint16_t rows);
+ 
++/**
++ * Create a terminal with explicit options.
++ *
++ * Existing ghostty_terminal_new() behavior is unchanged. The budget is
++ * retained by every terminal screen and may be shared across terminals.
++ */
++GHOSTTY_API GhosttyResult ghostty_terminal_new_with_options(
++    const GhosttyAllocator* allocator,
++    GhosttyTerminal* terminal,
++    uint16_t cols,
++    uint16_t rows,
++    const GhosttyTerminalCreateOptions* options);
++
+ /**
+  * Free a terminal instance.
+  *
+diff --git a/include/ghostty/vt/types.h b/include/ghostty/vt/types.h
+index 672faa6..7e48937 100644
+--- a/include/ghostty/vt/types.h
++++ b/include/ghostty/vt/types.h
+@@ -91,6 +91,13 @@ typedef enum GHOSTTY_ENUM_TYPED {
+ 
+ /* ---- Opaque handles ---- */
+ 
++/**
++ * Opaque shared budget for terminal page backing mappings.
++ *
++ * @ingroup terminal
++ */
++typedef struct GhosttyPageBudgetImpl* GhosttyPageBudget;
++
+ /**
+  * Opaque handle to a terminal instance.
+  *
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index ab04d5c..f5e8301 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -276,6 +276,10 @@ comptime {
+         @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
+         @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
++        @export(&c.terminal_new_with_options, .{ .name = "ghostty_terminal_new_with_options" });
++        @export(&c.page_budget_new, .{ .name = "ghostty_page_budget_new" });
++        @export(&c.page_budget_free, .{ .name = "ghostty_page_budget_free" });
++        @export(&c.page_budget_get_stats, .{ .name = "ghostty_page_budget_get_stats" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+diff --git a/src/terminal/PageBudget.zig b/src/terminal/PageBudget.zig
+new file mode 100644
+index 0000000..5104f2b
+--- /dev/null
++++ b/src/terminal/PageBudget.zig
+@@ -0,0 +1,529 @@
++//! Shared hard accounting for terminal page backing mappings.
++//!
++//! Charges are rounded exactly as the native page allocator rounds mappings,
++//! using the runtime OS page size. Decommitted mappings remain charged until
++//! the allocator actually frees them; this is not a physical RSS cap.
++const PageBudget = @This();
++
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++
++owner: Allocator,
++child: Allocator,
++limit: usize,
++used: std.atomic.Value(usize) = .init(0),
++peak: std.atomic.Value(usize) = .init(0),
++denials: std.atomic.Value(usize) = .init(0),
++child_failures: std.atomic.Value(usize) = .init(0),
++refs: std.atomic.Value(usize) = .init(1),
++
++pub const Failure = enum(u8) {
++    none,
++    budget_exhausted,
++    child_out_of_memory,
++    invalid_size,
++};
++
++pub const FailureState = struct {
++    epoch: usize,
++    last: Failure,
++};
++
++pub const Stats = struct {
++    limit: usize,
++    used: usize,
++    peak: usize,
++    denials: usize,
++    child_failures: usize,
++};
++
++/// Refcounted terminal-local failure state shared by every PageList adapter
++/// derived from one terminal. A single packed atomic makes the reported cause
++/// correspond to the latest epoch even when allocations fail concurrently.
++pub const FailureSink = struct {
++    owner: Allocator,
++    refs: std.atomic.Value(usize) = .init(1),
++    state: std.atomic.Value(usize) = .init(0),
++
++    const failure_bits = 2;
++    const failure_mask = (1 << failure_bits) - 1;
++
++    pub fn create(owner: Allocator) Allocator.Error!*FailureSink {
++        const self = try owner.create(FailureSink);
++        self.* = .{ .owner = owner };
++        return self;
++    }
++
++    pub fn retain(self: *FailureSink) *FailureSink {
++        const previous = self.refs.fetchAdd(1, .monotonic);
++        std.debug.assert(previous > 0 and previous < std.math.maxInt(usize));
++        return self;
++    }
++
++    pub fn releaseRef(self: *FailureSink) void {
++        const previous = self.refs.fetchSub(1, .acq_rel);
++        std.debug.assert(previous > 0);
++        if (previous == 1) self.owner.destroy(self);
++    }
++
++    pub fn failureState(self: *const FailureSink) FailureState {
++        const encoded = self.state.load(.acquire);
++        return .{
++            .epoch = encoded >> failure_bits,
++            .last = @enumFromInt(encoded & failure_mask),
++        };
++    }
++
++    fn record(self: *FailureSink, failure: Failure) void {
++        std.debug.assert(failure != .none);
++        var current = self.state.load(.monotonic);
++        while (true) {
++            const epoch = current >> failure_bits;
++            std.debug.assert(epoch < (std.math.maxInt(usize) >> failure_bits));
++            const next = ((epoch + 1) << failure_bits) | @intFromEnum(failure);
++            current = self.state.cmpxchgWeak(
++                current,
++                next,
++                .acq_rel,
++                .monotonic,
++            ) orelse return;
++        }
++    }
++};
++
++/// A terminal-local allocator context. Its epoch changes only for failures
++/// caused by allocations routed through this adapter, so another terminal
++/// sharing the same PageBudget cannot create a false failure observation.
++pub const Adapter = struct {
++    owner: Allocator,
++    budget: *PageBudget,
++    failure_sink: *FailureSink,
++
++    pub fn create(
++        owner: Allocator,
++        budget: *PageBudget,
++        failure_sink: ?*FailureSink,
++    ) Allocator.Error!*Adapter {
++        const sink = if (failure_sink) |value|
++            value.retain()
++        else
++            try FailureSink.create(owner);
++        errdefer sink.releaseRef();
++        const self = try owner.create(Adapter);
++        self.* = .{
++            .owner = owner,
++            .budget = budget.retain(),
++            .failure_sink = sink,
++        };
++        return self;
++    }
++
++    pub fn destroy(self: *Adapter) void {
++        const owner = self.owner;
++        self.budget.releaseRef();
++        self.failure_sink.releaseRef();
++        owner.destroy(self);
++    }
++
++    pub fn allocator(self: *Adapter) Allocator {
++        return .{ .ptr = self, .vtable = &adapter_vtable };
++    }
++
++    pub fn failureState(self: *const Adapter) FailureState {
++        return self.failure_sink.failureState();
++    }
++
++    fn record(self: *Adapter, failure: Failure) void {
++        self.failure_sink.record(failure);
++    }
++};
++
++pub fn create(owner: Allocator, child: Allocator, limit: usize) Allocator.Error!*PageBudget {
++    const self = try owner.create(PageBudget);
++    self.* = .{ .owner = owner, .child = child, .limit = limit };
++    return self;
++}
++
++pub fn retain(self: *PageBudget) *PageBudget {
++    const previous = self.refs.fetchAdd(1, .monotonic);
++    std.debug.assert(previous > 0 and previous < std.math.maxInt(usize));
++    return self;
++}
++
++pub fn releaseRef(self: *PageBudget) void {
++    const previous = self.refs.fetchSub(1, .acq_rel);
++    std.debug.assert(previous > 0);
++    if (previous == 1) self.owner.destroy(self);
++}
++
++pub fn stats(self: *const PageBudget) Stats {
++    return .{
++        .limit = self.limit,
++        .used = self.used.load(.acquire),
++        .peak = self.peak.load(.acquire),
++        .denials = self.denials.load(.acquire),
++        .child_failures = self.child_failures.load(.acquire),
++    };
++}
++
++/// Primarily for focused tests. Production PageLists use an Adapter so
++/// failures are attributable to one terminal rather than the shared budget.
++pub fn allocator(self: *PageBudget) Allocator {
++    return .{ .ptr = self, .vtable = &budget_vtable };
++}
++
++fn roundedBytes(len: usize) ?usize {
++    const page_size = std.heap.pageSize();
++    const mask = page_size - 1;
++    const added = std.math.add(usize, len, mask) catch return null;
++    return added & ~mask;
++}
++
++fn reserve(self: *PageBudget, bytes: usize) bool {
++    var current = self.used.load(.monotonic);
++    while (true) {
++        const next = std.math.add(usize, current, bytes) catch return false;
++        if (next > self.limit) return false;
++        current = self.used.cmpxchgWeak(current, next, .acq_rel, .monotonic) orelse {
++            self.raisePeak(next);
++            return true;
++        };
++    }
++}
++
++fn release(self: *PageBudget, bytes: usize) void {
++    const previous = self.used.fetchSub(bytes, .acq_rel);
++    std.debug.assert(previous >= bytes);
++}
++
++fn raisePeak(self: *PageBudget, candidate: usize) void {
++    var current = self.peak.load(.monotonic);
++    while (candidate > current) {
++        current = self.peak.cmpxchgWeak(
++            current,
++            candidate,
++            .monotonic,
++            .monotonic,
++        ) orelse return;
++    }
++}
++
++fn recordGlobal(self: *PageBudget, failure: Failure) void {
++    switch (failure) {
++        .budget_exhausted, .invalid_size => _ = self.denials.fetchAdd(1, .monotonic),
++        .child_out_of_memory => _ = self.child_failures.fetchAdd(1, .monotonic),
++        .none => unreachable,
++    }
++}
++
++fn allocation(
++    self: *PageBudget,
++    adapter: ?*Adapter,
++    len: usize,
++    alignment: std.mem.Alignment,
++    return_address: usize,
++) ?[*]u8 {
++    const charge = roundedBytes(len) orelse {
++        self.recordFailure(adapter, .invalid_size);
++        return null;
++    };
++    if (!self.reserve(charge)) {
++        self.recordFailure(adapter, .budget_exhausted);
++        return null;
++    }
++    return self.child.rawAlloc(len, alignment, return_address) orelse {
++        self.release(charge);
++        self.recordFailure(adapter, .child_out_of_memory);
++        return null;
++    };
++}
++
++fn resizing(
++    self: *PageBudget,
++    adapter: ?*Adapter,
++    memory: []u8,
++    alignment: std.mem.Alignment,
++    new_len: usize,
++    return_address: usize,
++) bool {
++    const old_charge = roundedBytes(memory.len) orelse unreachable;
++    const new_charge = roundedBytes(new_len) orelse {
++        self.recordFailure(adapter, .invalid_size);
++        return false;
++    };
++    const increase = new_charge -| old_charge;
++    if (increase > 0 and !self.reserve(increase)) {
++        self.recordFailure(adapter, .budget_exhausted);
++        return false;
++    }
++    if (!self.child.rawResize(memory, alignment, new_len, return_address)) {
++        if (increase > 0) self.release(increase);
++        // `false` is an allocator capability result, not an OOM result. The
++        // caller may fall back to allocating and copying a replacement. Any
++        // real child OOM is observed by allocation() during that fallback.
++        return false;
++    }
++    if (old_charge > new_charge) self.release(old_charge - new_charge);
++    return true;
++}
++
++fn remapping(
++    self: *PageBudget,
++    adapter: ?*Adapter,
++    memory: []u8,
++    alignment: std.mem.Alignment,
++    new_len: usize,
++    return_address: usize,
++) ?[*]u8 {
++    const old_charge = roundedBytes(memory.len) orelse unreachable;
++    const new_charge = roundedBytes(new_len) orelse {
++        self.recordFailure(adapter, .invalid_size);
++        return null;
++    };
++    const increase = new_charge -| old_charge;
++    if (increase > 0 and !self.reserve(increase)) {
++        self.recordFailure(adapter, .budget_exhausted);
++        return null;
++    }
++    const result = self.child.rawRemap(
++        memory,
++        alignment,
++        new_len,
++        return_address,
++    ) orelse {
++        if (increase > 0) self.release(increase);
++        // `null` asks Allocator.realloc to allocate/copy/free. It does not
++        // mean that the child allocator exhausted memory. Keep the terminal
++        // failure epoch unchanged unless the fallback rawAlloc really fails.
++        return null;
++    };
++    if (old_charge > new_charge) self.release(old_charge - new_charge);
++    return result;
++}
++
++fn freeing(
++    self: *PageBudget,
++    memory: []u8,
++    alignment: std.mem.Alignment,
++    return_address: usize,
++) void {
++    const charge = roundedBytes(memory.len) orelse unreachable;
++    self.child.rawFree(memory, alignment, return_address);
++    self.release(charge);
++}
++
++fn recordFailure(self: *PageBudget, adapter: ?*Adapter, failure: Failure) void {
++    self.recordGlobal(failure);
++    if (adapter) |value| value.record(failure);
++}
++
++const budget_vtable: Allocator.VTable = .{
++    .alloc = directAlloc,
++    .resize = directResize,
++    .remap = directRemap,
++    .free = directFree,
++};
++const adapter_vtable: Allocator.VTable = .{
++    .alloc = adapterAlloc,
++    .resize = adapterResize,
++    .remap = adapterRemap,
++    .free = adapterFree,
++};
++
++fn directAlloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
++    const self: *PageBudget = @ptrCast(@alignCast(ctx));
++    return self.allocation(null, len, alignment, ra);
++}
++fn directResize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ra: usize) bool {
++    const self: *PageBudget = @ptrCast(@alignCast(ctx));
++    return self.resizing(null, memory, alignment, new_len, ra);
++}
++fn directRemap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ra: usize) ?[*]u8 {
++    const self: *PageBudget = @ptrCast(@alignCast(ctx));
++    return self.remapping(null, memory, alignment, new_len, ra);
++}
++fn directFree(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ra: usize) void {
++    const self: *PageBudget = @ptrCast(@alignCast(ctx));
++    self.freeing(memory, alignment, ra);
++}
++fn adapterAlloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
++    const adapter: *Adapter = @ptrCast(@alignCast(ctx));
++    return adapter.budget.allocation(adapter, len, alignment, ra);
++}
++fn adapterResize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ra: usize) bool {
++    const adapter: *Adapter = @ptrCast(@alignCast(ctx));
++    return adapter.budget.resizing(adapter, memory, alignment, new_len, ra);
++}
++fn adapterRemap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ra: usize) ?[*]u8 {
++    const adapter: *Adapter = @ptrCast(@alignCast(ctx));
++    return adapter.budget.remapping(adapter, memory, alignment, new_len, ra);
++}
++fn adapterFree(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ra: usize) void {
++    const adapter: *Adapter = @ptrCast(@alignCast(ctx));
++    adapter.budget.freeing(memory, alignment, ra);
++}
++
++test "runtime page rounded exact threshold" {
++    const testing = std.testing;
++    const page_size = std.heap.pageSize();
++    const budget = try create(testing.allocator, testing.allocator, page_size);
++    defer budget.releaseRef();
++    const bytes = try budget.allocator().alloc(u8, 1);
++    try testing.expectEqual(page_size, budget.stats().used);
++    try testing.expectError(error.OutOfMemory, budget.allocator().alloc(u8, 1));
++    budget.allocator().free(bytes);
++    try testing.expectEqual(@as(usize, 0), budget.stats().used);
++}
++
++test "child failure rolls reservation back and is adapter local" {
++    const testing = std.testing;
++    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 0 });
++    const budget = try create(testing.allocator, failing.allocator(), std.heap.pageSize());
++    defer budget.releaseRef();
++    const adapter = try Adapter.create(testing.allocator, budget, null);
++    defer adapter.destroy();
++
++    try testing.expectError(error.OutOfMemory, adapter.allocator().alloc(u8, 1));
++    try testing.expectEqual(@as(usize, 0), budget.stats().used);
++    try testing.expectEqual(Failure.child_out_of_memory, adapter.failureState().last);
++    try testing.expectEqual(@as(usize, 1), adapter.failureState().epoch);
++    try testing.expectEqual(@as(usize, 1), budget.stats().child_failures);
++}
++
++test "resize and remap fallback do not report child out of memory" {
++    const testing = std.testing;
++    const page_size = std.heap.pageSize();
++    var moving = testing.FailingAllocator.init(testing.allocator, .{
++        .resize_fail_index = 0,
++    });
++    const budget = try create(testing.allocator, moving.allocator(), page_size * 8);
++    defer budget.releaseRef();
++    const adapter = try Adapter.create(testing.allocator, budget, null);
++    defer adapter.destroy();
++    const alloc = adapter.allocator();
++
++    var bytes = try alloc.alloc(u8, 1);
++    bytes[0] = 0xa5;
++    try testing.expect(!alloc.resize(bytes, page_size + 1));
++    try testing.expectEqual(@as(usize, 0), adapter.failureState().epoch);
++    try testing.expectEqual(page_size, budget.stats().used);
++
++    bytes = try alloc.realloc(bytes, page_size + 1);
++    try testing.expectEqual(@as(u8, 0xa5), bytes[0]);
++    try testing.expectEqual(@as(usize, 0), adapter.failureState().epoch);
++    try testing.expectEqual(@as(usize, 0), budget.stats().child_failures);
++    try testing.expectEqual(page_size * 2, budget.stats().used);
++    alloc.free(bytes);
++    try testing.expectEqual(@as(usize, 0), budget.stats().used);
++}
++
++test "real realloc fallback child failure is reported and preserves old charge" {
++    const testing = std.testing;
++    const page_size = std.heap.pageSize();
++    var failing = testing.FailingAllocator.init(testing.allocator, .{
++        .fail_index = 1,
++        .resize_fail_index = 0,
++    });
++    const budget = try create(testing.allocator, failing.allocator(), page_size * 8);
++    defer budget.releaseRef();
++    const adapter = try Adapter.create(testing.allocator, budget, null);
++    defer adapter.destroy();
++    const alloc = adapter.allocator();
++
++    const bytes = try alloc.alloc(u8, 1);
++    try testing.expectError(error.OutOfMemory, alloc.realloc(bytes, page_size + 1));
++    try testing.expectEqual(page_size, budget.stats().used);
++    try testing.expectEqual(Failure.child_out_of_memory, adapter.failureState().last);
++    try testing.expectEqual(@as(usize, 1), adapter.failureState().epoch);
++    try testing.expectEqual(@as(usize, 1), budget.stats().child_failures);
++    alloc.free(bytes);
++    try testing.expectEqual(@as(usize, 0), budget.stats().used);
++}
++
++test "caller budget reference may be freed before adapter" {
++    const testing = std.testing;
++    const budget = try create(testing.allocator, testing.allocator, std.heap.pageSize());
++    const adapter = try Adapter.create(testing.allocator, budget, null);
++    budget.releaseRef();
++    const bytes = try adapter.allocator().alloc(u8, 1);
++    adapter.allocator().free(bytes);
++    adapter.destroy();
++}
++
++test "shared failure sink retains latest cause after adapter destruction" {
++    const testing = std.testing;
++    const budget = try create(testing.allocator, testing.allocator, std.heap.pageSize());
++    defer budget.releaseRef();
++    const sink = try FailureSink.create(testing.allocator);
++    defer sink.releaseRef();
++    const first = try Adapter.create(testing.allocator, budget, sink);
++    defer first.destroy();
++    const derived = try Adapter.create(testing.allocator, budget, sink);
++
++    first.record(.child_out_of_memory);
++    derived.record(.budget_exhausted);
++    derived.destroy();
++    try testing.expectEqual(@as(usize, 2), sink.failureState().epoch);
++    try testing.expectEqual(Failure.budget_exhausted, sink.failureState().last);
++}
++
++test "shared rounded cap denial is local and free permits retry" {
++    const testing = std.testing;
++    const budget = try create(testing.allocator, testing.allocator, std.heap.pageSize());
++    defer budget.releaseRef();
++    const first = try Adapter.create(testing.allocator, budget, null);
++    defer first.destroy();
++    const second = try Adapter.create(testing.allocator, budget, null);
++    defer second.destroy();
++
++    const bytes = try first.allocator().alloc(u8, 1);
++    try testing.expectError(error.OutOfMemory, second.allocator().alloc(u8, 1));
++    try testing.expectEqual(@as(usize, 0), first.failureState().epoch);
++    try testing.expectEqual(Failure.budget_exhausted, second.failureState().last);
++    first.allocator().free(bytes);
++    const retried = try second.allocator().alloc(u8, 1);
++    second.allocator().free(retried);
++}
++
++test "concurrent rounded reservations never exceed cap" {
++    const testing = std.testing;
++    const Worker = struct {
++        adapter: *Adapter,
++        ready: *std.atomic.Value(usize),
++        successes: *std.atomic.Value(usize),
++        release: *std.atomic.Value(bool),
++
++        fn run(self: @This()) void {
++            const bytes = self.adapter.allocator().alloc(u8, 1) catch {
++                _ = self.ready.fetchAdd(1, .release);
++                return;
++            };
++            _ = self.successes.fetchAdd(1, .acq_rel);
++            _ = self.ready.fetchAdd(1, .release);
++            while (!self.release.load(.acquire)) std.atomic.spinLoopHint();
++            self.adapter.allocator().free(bytes);
++        }
++    };
++
++    const page_size = std.heap.pageSize();
++    const budget = try create(testing.allocator, testing.allocator, page_size * 2);
++    defer budget.releaseRef();
++    const adapter = try Adapter.create(testing.allocator, budget, null);
++    defer adapter.destroy();
++    var ready: std.atomic.Value(usize) = .init(0);
++    var successes: std.atomic.Value(usize) = .init(0);
++    var release_workers: std.atomic.Value(bool) = .init(false);
++    var threads: [8]std.Thread = undefined;
++    for (&threads) |*thread| thread.* = try std.Thread.spawn(.{}, Worker.run, .{Worker{
++        .adapter = adapter,
++        .ready = &ready,
++        .successes = &successes,
++        .release = &release_workers,
++    }});
++    while (ready.load(.acquire) != threads.len) std.atomic.spinLoopHint();
++    try testing.expectEqual(@as(usize, 2), successes.load(.acquire));
++    try testing.expect(budget.stats().peak <= budget.stats().limit);
++    release_workers.store(true, .release);
++    for (&threads) |*thread| thread.join();
++    try testing.expectEqual(@as(usize, 0), budget.stats().used);
++}
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+index 429a363..a46868b 100644
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -26,6 +26,7 @@ const OffsetBuf = size.OffsetBuf;
+ const Capacity = pagepkg.Capacity;
+ const Page = pagepkg.Page;
+ const Row = pagepkg.Row;
++pub const PageBudget = @import("PageBudget.zig");
+ 
+ const log = std.log.scoped(.page_list);
+ 
+@@ -364,6 +365,11 @@ pub const MemoryPool = struct {
+ /// The memory pool we get page nodes, pages from.
+ pool: MemoryPool,
+ 
++/// Shared accounting for every mapping obtained by this list's page pool.
++/// Decommitted mappings remain charged until the pool actually frees them.
++budget: ?*PageBudget,
++budget_adapter: ?*PageBudget.Adapter,
++
+ /// The list of pages in the screen.
+ pages: List,
+ 
+@@ -528,7 +534,7 @@ fn initialCapacity(cols: size.CellCountInt) Capacity {
+ 
+ /// This is the page allocator we'll use for all our underlying
+ /// VM page allocations.
+-inline fn pageAllocator() Allocator {
++pub inline fn pageAllocator() Allocator {
+     // In tests we use our testing allocator so we can detect leaks.
+     if (builtin.is_test) return std.testing.allocator;
+ 
+@@ -565,6 +571,16 @@ pub const Options = struct {
+     ///
+     /// Null is unlimited.
+     max_lines: ?usize = null,
++
++    /// Optional hard accounting shared with other page lists and decoders.
++    page_budget: ?*PageBudget = null,
++
++    /// Terminal-owned failure state shared by every derived adapter.
++    page_budget_failure_sink: ?*PageBudget.FailureSink = null,
++
++    /// Receives the terminal-local allocation failure when initialization
++    /// fails. The pointer is used only during this call and is not retained.
++    page_budget_failure_out: ?*PageBudget.Failure = null,
+ };
+ 
+ /// Initialize the page. The top of the first page in the list is always the
+@@ -596,13 +612,27 @@ pub fn init(
+     const cols = opts.cols;
+     const rows = opts.rows;
+ 
++    const budget_adapter = if (opts.page_budget) |value|
++        try PageBudget.Adapter.create(alloc, value, opts.page_budget_failure_sink)
++    else
++        null;
++    errdefer if (budget_adapter) |value| value.destroy();
++    errdefer {
++        if (opts.page_budget_failure_out) |out| {
++            out.* = if (budget_adapter) |value|
++                value.failureState().last
++            else
++                .none;
++        }
++    }
++
+     // The screen starts with a single page that is the entire viewport,
+     // and we'll split it thereafter if it gets too large and add more as
+     // necessary.
+     try tw.check(.init_memory_pool);
+     var pool = try MemoryPool.init(
+         alloc,
+-        pageAllocator(),
++        if (budget_adapter) |value| value.allocator() else pageAllocator(),
+         page_preheat,
+     );
+     errdefer pool.deinit();
+@@ -635,6 +665,8 @@ pub fn init(
+         .cols = cols,
+         .rows = rows,
+         .pool = pool,
++        .budget = opts.page_budget,
++        .budget_adapter = budget_adapter,
+         .pages = page_list,
+         .page_serial = page_serial,
+         .page_serial_epoch = 0,
+@@ -899,6 +931,16 @@ pub fn deinit(self: *PageList) void {
+     // Deallocate all the pages. We don't need to deallocate the list or
+     // nodes because they all reside in the pool.
+     self.pool.deinit();
++    if (self.budget_adapter) |adapter| adapter.destroy();
++}
++
++/// Terminal-local budget failure state for feed-before/feed-after detection.
++/// Failures from other terminals sharing the PageBudget do not affect this.
++pub fn pageBudgetFailureState(self: *const PageList) PageBudget.FailureState {
++    return if (self.budget_adapter) |adapter|
++        adapter.failureState()
++    else
++        .{ .epoch = 0, .last = .none };
+ }
+ 
+ /// Reset the PageList back to an empty state. This is similar to
+@@ -1082,10 +1124,19 @@ pub fn clone(
+         break :page_count count;
+     };
+ 
+-    // Setup our pool
++    // Setup our pool. Clones share the same atomic mapping budget.
++    const budget_adapter = if (self.budget) |value|
++        try PageBudget.Adapter.create(
++            alloc,
++            value,
++            if (self.budget_adapter) |adapter| adapter.failure_sink else null,
++        )
++    else
++        null;
++    errdefer if (budget_adapter) |value| value.destroy();
+     var pool: MemoryPool = try .init(
+         alloc,
+-        pageAllocator(),
++        if (budget_adapter) |value| value.allocator() else pageAllocator(),
+         page_count,
+     );
+     errdefer pool.deinit();
+@@ -1166,6 +1217,8 @@ pub fn clone(
+ 
+     var result: PageList = .{
+         .pool = pool,
++        .budget = self.budget,
++        .budget_adapter = budget_adapter,
+         .pages = page_list,
+         .page_serial = page_serial,
+         .page_serial_epoch = 0,
+@@ -7350,6 +7403,8 @@ pub const Pin = struct {
+ /// for other purposes as well.
+ pub const Builder = struct {
+     pool: MemoryPool,
++    budget: ?*PageBudget,
++    budget_adapter: ?*PageBudget.Adapter,
+     pages: List = .{},
+     page_serial: u64 = 0,
+     page_size: usize = 0,
+@@ -7363,12 +7418,31 @@ pub const Builder = struct {
+         alloc: Allocator,
+         options: Options,
+     ) Allocator.Error!Builder {
++        const budget_adapter = if (options.page_budget) |value|
++            try PageBudget.Adapter.create(
++                alloc,
++                value,
++                options.page_budget_failure_sink,
++            )
++        else
++            null;
++        errdefer if (budget_adapter) |value| value.destroy();
++        errdefer {
++            if (options.page_budget_failure_out) |out| {
++                out.* = if (budget_adapter) |value|
++                    value.failureState().last
++                else
++                    .none;
++            }
++        }
+         return .{
+             .pool = try MemoryPool.init(
+                 alloc,
+-                pageAllocator(),
++                if (budget_adapter) |value| value.allocator() else pageAllocator(),
+                 page_preheat,
+             ),
++            .budget = options.page_budget,
++            .budget_adapter = budget_adapter,
+             .options = options,
+         };
+     }
+@@ -7388,6 +7462,7 @@ pub const Builder = struct {
+         );
+         // Free memory pool
+         self.pool.deinit();
++        if (self.budget_adapter) |adapter| adapter.destroy();
+         self.* = undefined;
+     }
+ 
+@@ -7476,6 +7551,8 @@ pub const Builder = struct {
+             .cols = self.options.cols,
+             .rows = self.options.rows,
+             .pool = self.pool,
++            .budget = self.budget,
++            .budget_adapter = self.budget_adapter,
+             .pages = self.pages,
+             .page_serial = self.page_serial,
+             .page_serial_epoch = 0,
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 41149f6..43e12e0 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -270,6 +270,11 @@ pub const Options = struct {
+     /// standard page and only complete historical pages are pruned.
+     max_scrollback_lines: ?usize = null,
+ 
++    /// Shared hard accounting for page-pool and oversized page mappings.
++    page_budget: ?*PageList.PageBudget = null,
++    page_budget_failure_sink: ?*PageList.PageBudget.FailureSink = null,
++    page_budget_failure_out: ?*PageList.PageBudget.Failure = null,
++
+     /// The total storage limit for Kitty images in bytes for this
+     /// screen. Kitty image storage is per-screen.
+     kitty_image_storage_limit: usize = switch (build_options.artifact) {
+@@ -311,6 +316,9 @@ pub fn init(
+         .rows = opts.rows,
+         .max_size = opts.max_scrollback_bytes,
+         .max_lines = opts.max_scrollback_lines,
++        .page_budget = opts.page_budget,
++        .page_budget_failure_sink = opts.page_budget_failure_sink,
++        .page_budget_failure_out = opts.page_budget_failure_out,
+     });
+     errdefer pages.deinit();
+ 
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index b157994..457fe04 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -47,6 +47,9 @@ const TABSTOP_INTERVAL = 8;
+ /// The set of screens behind this terminal (e.g. primary vs alternate).
+ screens: ScreenSet,
+ 
++/// Persistent local failure state shared by every screen PageList adapter.
++page_budget_failure_sink: ?*PageList.PageBudget.FailureSink = null,
++
+ /// Whether we're currently writing to the status line (DECSASD and DECSSDT).
+ /// We don't support a status line currently so we just black hole this
+ /// data so that it doesn't mess up our main display.
+@@ -270,6 +273,10 @@ pub const Options = struct {
+     /// standard page and only complete historical pages are pruned.
+     max_scrollback_lines: ?usize = null,
+ 
++    /// Optional shared hard accounting for all terminal screen page mappings.
++    page_budget: ?*PageList.PageBudget = null,
++    page_budget_failure_out: ?*PageList.PageBudget.Failure = null,
++
+     colors: Colors = .default,
+ 
+     /// The default mode state. When the terminal gets a reset, it
+@@ -310,11 +317,22 @@ pub fn init(
+     const cols = opts.cols;
+     const rows = opts.rows;
+ 
++    const failure_sink = if (opts.page_budget != null)
++        try PageList.PageBudget.FailureSink.create(alloc)
++    else
++        null;
++    errdefer if (failure_sink) |sink| sink.releaseRef();
++    errdefer if (opts.page_budget_failure_out) |out| {
++        out.* = if (failure_sink) |sink| sink.failureState().last else .none;
++    };
++
+     var screen_set: ScreenSet = try .init(io_impl, alloc, .{
+         .cols = cols,
+         .rows = rows,
+         .max_scrollback_bytes = opts.max_scrollback_bytes,
+         .max_scrollback_lines = opts.max_scrollback_lines,
++        .page_budget = opts.page_budget,
++        .page_budget_failure_sink = failure_sink,
+         .kitty_image_storage_limit = opts.kitty_image_storage_limit,
+         .kitty_image_loading_limits = opts.kitty_image_loading_limits,
+     });
+@@ -324,6 +342,7 @@ pub fn init(
+         .cols = cols,
+         .rows = rows,
+         .screens = screen_set,
++        .page_budget_failure_sink = failure_sink,
+         .tabstops = try .init(alloc, cols, TABSTOP_INTERVAL),
+         .scrolling_region = .{
+             .top = 0,
+@@ -350,6 +369,7 @@ pub fn init(
+ pub fn deinit(self: *Terminal, alloc: Allocator) void {
+     self.tabstops.deinit(alloc);
+     self.screens.deinit(alloc);
++    if (self.page_budget_failure_sink) |sink| sink.releaseRef();
+     self.pwd.deinit(alloc);
+     self.title.deinit(alloc);
+     self.glyph_glossary.deinit(alloc);
+@@ -449,6 +469,14 @@ pub fn gpa(self: *Terminal) Allocator {
+     return self.screens.active.alloc;
+ }
+ 
++/// Read the persistent failure state shared by all adapters in this terminal.
++pub fn pageBudgetFailureState(self: *const Terminal) PageList.PageBudget.FailureState {
++    return if (self.page_budget_failure_sink) |sink|
++        sink.failureState()
++    else
++        .{ .epoch = 0, .last = .none };
++}
++
+ /// Change the primary screen's maximum scrollback allocation in bytes.
+ ///
+ /// Null removes the byte limit and zero disables scrollback. Disabling
+@@ -3887,6 +3915,8 @@ pub fn resize(
+                 .cols = opts.cols,
+                 .rows = opts.rows,
+                 .max_scrollback_bytes = 0,
++                .page_budget = primary.pages.budget,
++                .page_budget_failure_sink = self.page_budget_failure_sink,
+                 .kitty_image_storage_limit = if (comptime build_options.kitty_graphics)
+                     primary.kitty_images.total_limit
+                 else
+@@ -4498,6 +4528,8 @@ pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
+                     .primary => primary.pages.limits.bytes.explicit,
+                     .alternate => 0,
+                 },
++                .page_budget = primary.pages.budget,
++                .page_budget_failure_sink = self.page_budget_failure_sink,
+ 
+                 // Inherit our Kitty image settings from the primary
+                 // screen if we have to initialize.
+diff --git a/src/terminal/bitmap_allocator.zig b/src/terminal/bitmap_allocator.zig
+index 787f0ac..5cdc080 100644
+--- a/src/terminal/bitmap_allocator.zig
++++ b/src/terminal/bitmap_allocator.zig
+@@ -205,27 +205,38 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
+         /// rounded up to the nearest chunk size and bitmap size so
+         /// everything is perfectly divisible.
+         pub fn layout(cap: usize) Layout {
++            return checkedLayout(cap) catch unreachable;
++        }
++
++        pub fn checkedLayout(cap: usize) error{Overflow}!Layout {
+             // Align the cap forward to our chunk size so we always have
+             // a full chunk at the end.
+-            const aligned_cap = alignForward(usize, cap, chunk_size);
++            const aligned_cap = checkedAlignForward(cap, chunk_size) catch
++                return error.Overflow;
+ 
+             // Calculate the number of bitmaps. We need 1 bitmap per 64 chunks.
+             // We align the chunk count forward so our bitmaps are full so we
+             // don't have to handle the case where we have a partial bitmap.
+             const chunk_count = @divExact(aligned_cap, chunk_size);
+-            const aligned_chunk_count = alignForward(usize, chunk_count, 64);
++            const aligned_chunk_count = checkedAlignForward(chunk_count, 64) catch
++                return error.Overflow;
+             const bitmap_count = @divExact(aligned_chunk_count, 64);
+ 
+             const bitmap_start = 0;
+-            const bitmap_end = @sizeOf(u64) * bitmap_count;
+-            const chunks_start = alignForward(usize, bitmap_end, @alignOf(u8));
++            const bitmap_end = std.math.mul(usize, @sizeOf(u64), bitmap_count) catch
++                return error.Overflow;
++            const chunks_start = checkedAlignForward(bitmap_end, @alignOf(u8)) catch
++                return error.Overflow;
+ 
+             // The chunks region must be exactly the bytes addressable by
+             // the bitmaps: one chunk per bit of every bitmap. Anything more
+             // is unreachable waste, while anything less would let alloc
+             // hand out memory beyond the region, since init marks every
+             // bitmap bit as free.
+-            const chunks_end = chunks_start + (aligned_chunk_count * chunk_size);
++            const chunks_size = std.math.mul(usize, aligned_chunk_count, chunk_size) catch
++                return error.Overflow;
++            const chunks_end = std.math.add(usize, chunks_start, chunks_size) catch
++                return error.Overflow;
+             const total_size = chunks_end;
+ 
+             return Layout{
+@@ -235,6 +246,13 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
+                 .chunks_start = chunks_start,
+             };
+         }
++
++        fn checkedAlignForward(value: usize, alignment: usize) error{Overflow}!usize {
++            std.debug.assert(std.math.isPowerOfTwo(alignment));
++            const mask = alignment - 1;
++            const added = try std.math.add(usize, value, mask);
++            return added & ~mask;
++        }
+     };
+ }
+ 
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index d6f9e66..daf7fd4 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -39,6 +39,7 @@ pub const key_encode = @import("key_encode.zig");
+ pub const mouse_event = @import("mouse_event.zig");
+ pub const mouse_encode = @import("mouse_encode.zig");
+ pub const paste = @import("paste.zig");
++pub const page_budget = @import("page_budget.zig");
+ pub const row = @import("row.zig");
+ pub const sgr = @import("sgr.zig");
+ pub const size_report = @import("size_report.zig");
+@@ -179,6 +180,7 @@ pub const sys_log_stderr = sys.logStderr;
+ pub const sys_set = sys.set;
+ 
+ pub const terminal_new = terminal.new;
++pub const terminal_new_with_options = terminal.newWithOptions;
+ pub const terminal_free = terminal.free;
+ pub const terminal_reset = terminal.reset;
+ pub const terminal_resize = terminal.resize;
+@@ -196,6 +198,10 @@ pub const terminal_select_word = selection.word;
+ pub const terminal_select_word_between = selection.word_between;
+ pub const terminal_select_line = selection.line;
+ pub const terminal_select_all = selection.all;
++
++pub const page_budget_new = page_budget.new;
++pub const page_budget_free = page_budget.free;
++pub const page_budget_get_stats = page_budget.getStats;
+ pub const terminal_select_output = selection.output;
+ pub const terminal_selection_format_buf = selection.format_buf;
+ pub const terminal_selection_format_alloc = selection.format_alloc;
+diff --git a/src/terminal/c/page_budget.zig b/src/terminal/c/page_budget.zig
+new file mode 100644
+index 0000000..ec7b49c
+--- /dev/null
++++ b/src/terminal/c/page_budget.zig
+@@ -0,0 +1,95 @@
++const std = @import("std");
++const lib = @import("../lib.zig");
++const CAllocator = lib.alloc.Allocator;
++const Result = @import("result.zig").Result;
++const PageList = @import("../PageList.zig");
++const PageBudget = PageList.PageBudget;
++
++/// C: GhosttyPageBudget
++pub const Budget = ?*PageBudget;
++
++/// C: GhosttyPageBudgetFailure
++pub const Failure = enum(c_int) {
++    none = 0,
++    budget_exhausted = 1,
++    child_out_of_memory = 2,
++    invalid_size = 3,
++    _,
++
++    pub fn fromCore(value: PageBudget.Failure) Failure {
++        return switch (value) {
++            .none => .none,
++            .budget_exhausted => .budget_exhausted,
++            .child_out_of_memory => .child_out_of_memory,
++            .invalid_size => .invalid_size,
++        };
++    }
++};
++
++/// C: GhosttyPageBudgetStats
++pub const Stats = extern struct {
++    size: usize = @sizeOf(Stats),
++    limit_bytes: usize,
++    reserved_bytes: usize,
++    peak_reserved_bytes: usize,
++    denial_count: usize,
++    child_failure_count: usize,
++};
++
++pub fn new(
++    allocator_: ?*const CAllocator,
++    result_: ?*Budget,
++    limit_bytes: usize,
++) callconv(lib.calling_conv) Result {
++    const result = result_ orelse return .invalid_value;
++    result.* = null;
++    const owner = lib.alloc.default(allocator_);
++    result.* = PageBudget.create(
++        owner,
++        PageList.pageAllocator(),
++        limit_bytes,
++    ) catch return .out_of_memory;
++    return .success;
++}
++
++pub fn free(budget: Budget) callconv(lib.calling_conv) void {
++    const value = budget orelse return;
++    value.releaseRef();
++}
++
++pub fn getStats(
++    budget: Budget,
++    result_: ?*Stats,
++) callconv(lib.calling_conv) Result {
++    const value = budget orelse return .invalid_value;
++    const result = result_ orelse return .invalid_value;
++    if (result.size < @sizeOf(Stats)) return .invalid_value;
++    const stats = value.stats();
++    result.* = .{
++        .limit_bytes = stats.limit,
++        .reserved_bytes = stats.used,
++        .peak_reserved_bytes = stats.peak,
++        .denial_count = stats.denials,
++        .child_failure_count = stats.child_failures,
++    };
++    return .success;
++}
++
++test "C page budget stats" {
++    const testing = std.testing;
++    const page_size = std.heap.pageSize();
++    const budget = try PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        page_size,
++    );
++    defer budget.releaseRef();
++    const bytes = try budget.allocator().alloc(u8, 8);
++    defer budget.allocator().free(bytes);
++
++    var stats: Stats = undefined;
++    stats.size = @sizeOf(Stats);
++    try testing.expectEqual(Result.success, getStats(budget, &stats));
++    try testing.expectEqual(page_size, stats.limit_bytes);
++    try testing.expectEqual(page_size, stats.reserved_bytes);
++}
+diff --git a/src/terminal/c/snapshot.zig b/src/terminal/c/snapshot.zig
+index 38cce89..fdb2974 100644
+--- a/src/terminal/c/snapshot.zig
++++ b/src/terminal/c/snapshot.zig
+@@ -14,12 +14,14 @@ const apc = @import("../apc.zig");
+ /// This remains independent of opt-in terminal-side continuation tracking.
+ const default_max_continuation_bytes = apc.Protocol.maxDefaultBytes();
+ const terminal_c = @import("terminal.zig");
++const page_budget_c = @import("page_budget.zig");
+ 
+ /// C: GhosttySnapshotDecoderOption.
+ ///
+ /// Options configure validation policy before snapshot decoding begins.
+ pub const DecoderOption = enum(c_int) {
+     max_continuation_bytes = 0,
++    page_budget = 1,
+     _,
+ };
+ 
+@@ -102,6 +104,7 @@ const DecoderWrapper = struct {
+     decoder: snapshot_core.Decoder,
+     state: State,
+     max_continuation_bytes: usize,
++    page_budget: page_budget_c.Budget,
+ };
+ 
+ /// C: GhosttySnapshotDecoder, an opaque nullable decoder handle.
+@@ -164,6 +167,7 @@ fn decoderNewSource(
+     wrapper.source = source;
+     wrapper.state = .configuring;
+     wrapper.max_continuation_bytes = default_max_continuation_bytes;
++    wrapper.page_budget = null;
+     wrapper.decoder = .init(wrapper.source.reader());
+     out.* = wrapper;
+     return .success;
+@@ -173,6 +177,7 @@ fn decoderNewSource(
+ pub fn decoder_free(decoder_: Decoder) callconv(lib.calling_conv) void {
+     const decoder = decoder_ orelse return;
+     const alloc = decoder.alloc;
++    if (decoder.page_budget) |budget| budget.releaseRef();
+     alloc.destroy(decoder);
+ }
+ 
+@@ -194,6 +199,12 @@ pub fn decoder_set(
+     switch (option) {
+         .max_continuation_bytes => decoder.max_continuation_bytes =
+             @as(*const usize, @ptrCast(@alignCast(value))).*,
++        .page_budget => {
++            const next = @as(*const page_budget_c.Budget, @ptrCast(@alignCast(value))).*;
++            if (next) |budget| _ = budget.retain();
++            if (decoder.page_budget) |budget| budget.releaseRef();
++            decoder.page_budget = next;
++        },
+         _ => return .invalid_value,
+     }
+     return .success;
+@@ -444,7 +455,10 @@ fn decoderReadyTerminal(decoder: *DecoderWrapper) anyerror!ReadyTerminal {
+     var decoded = decoder.decoder.ready(
+         decoder.alloc,
+         io.io(),
+-        .{ .max_continuation_bytes = decoder.max_continuation_bytes },
++        .{
++            .max_continuation_bytes = decoder.max_continuation_bytes,
++            .page_budget = decoder.page_budget,
++        },
+     ) catch |err| {
+         io.deinit(decoder.alloc);
+         return err;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 63c996c..bcd3daa 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -30,6 +30,7 @@ const color = @import("../color.zig");
+ const clipboard = @import("../clipboard.zig");
+ const c_io = @import("io.zig");
+ const snapshot_core = @import("../snapshot/main.zig");
++const page_budget_c = @import("page_budget.zig");
+ const Result = @import("result.zig").Result;
+ const assert = @import("../../quirks.zig").inlineAssert;
+ 
+@@ -564,13 +565,20 @@ const NewError = error{
+     OutOfMemory,
+ };
+ 
++/// C: GhosttyTerminalCreateOptions
++pub const CreateOptions = extern struct {
++    size: usize = @sizeOf(CreateOptions),
++    page_budget: page_budget_c.Budget = null,
++    page_budget_failure_out: ?*page_budget_c.Failure = null,
++};
++
+ pub fn new(
+     alloc_: ?*const CAllocator,
+     result: *Terminal,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
+ ) callconv(lib.calling_conv) Result {
+-    result.* = new_(alloc_, cols, rows) catch |err| {
++    result.* = new_(alloc_, cols, rows, null, null) catch |err| {
+         result.* = null;
+         return switch (err) {
+             error.InvalidValue => .invalid_value,
+@@ -581,10 +589,45 @@ pub fn new(
+     return .success;
+ }
+ 
++pub fn newWithOptions(
++    alloc_: ?*const CAllocator,
++    result: *Terminal,
++    cols: size.CellCountInt,
++    rows: size.CellCountInt,
++    options_: ?*const CreateOptions,
++) callconv(lib.calling_conv) Result {
++    const options = options_ orelse &CreateOptions{};
++    if (options.size < @sizeOf(CreateOptions)) {
++        result.* = null;
++        return .invalid_value;
++    }
++    if (options.page_budget_failure_out) |out| out.* = .none;
++    var core_failure: PageList.PageBudget.Failure = .none;
++    result.* = new_(
++        alloc_,
++        cols,
++        rows,
++        options.page_budget,
++        &core_failure,
++    ) catch |err| {
++        if (options.page_budget_failure_out) |out| {
++            out.* = .fromCore(core_failure);
++        }
++        result.* = null;
++        return switch (err) {
++            error.InvalidValue => .invalid_value,
++            error.OutOfMemory => .out_of_memory,
++        };
++    };
++    return .success;
++}
++
+ fn new_(
+     alloc_: ?*const CAllocator,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
++    page_budget: page_budget_c.Budget,
++    page_budget_failure_out: ?*PageList.PageBudget.Failure,
+ ) NewError!Terminal {
+     if (cols == 0 or rows == 0) return error.InvalidValue;
+ 
+@@ -603,6 +646,8 @@ fn new_(
+         .{
+             .cols = cols,
+             .rows = rows,
++            .page_budget = page_budget,
++            .page_budget_failure_out = page_budget_failure_out,
+         },
+     );
+     errdefer t.deinit(alloc);
+@@ -1237,6 +1282,8 @@ pub const TerminalData = enum(c_int) {
+     scrollback_max_lines = 35,
+     continuation_max_bytes = 36,
+     mode = 37,
++    page_budget_failure_epoch = 38,
++    page_budget_last_failure = 39,
+ 
+     /// Output type expected for querying the data of the given kind.
+     pub fn OutType(comptime self: TerminalData) type {
+@@ -1259,6 +1306,7 @@ pub const TerminalData = enum(c_int) {
+             .scrollback_max_bytes,
+             .scrollback_max_lines,
+             .continuation_max_bytes,
++            .page_budget_failure_epoch,
+             => usize,
+             .width_px, .height_px => u32,
+             .color_foreground,
+@@ -1277,6 +1325,7 @@ pub const TerminalData = enum(c_int) {
+             .kitty_graphics => KittyGraphics,
+             .selection => selection_c.CSelection,
+             .mode => ModeConfig,
++            .page_budget_last_failure => page_budget_c.Failure,
+         };
+     }
+ };
+@@ -1359,6 +1408,8 @@ fn getTyped(
+         },
+         .total_rows => out.* = t.screens.active.pages.total_rows,
+         .scrollback_rows => out.* = t.screens.active.pages.total_rows - t.rows,
++        .page_budget_failure_epoch => out.* = t.pageBudgetFailureState().epoch,
++        .page_budget_last_failure => out.* = .fromCore(t.pageBudgetFailureState().last),
+         .width_px => out.* = t.width_px,
+         .height_px => out.* = t.height_px,
+         .color_foreground => out.* = (t.colors.foreground.get() orelse return .no_value).cval(),
+@@ -1523,6 +1574,104 @@ test "new/free" {
+     free(t);
+ }
+ 
++test "create options share exact page mapping budget and retry after free" {
++    const PageBudget = PageList.PageBudget;
++
++    const probe = try PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        std.math.maxInt(usize),
++    );
++    defer probe.releaseRef();
++    var options: CreateOptions = .{ .page_budget = probe };
++    var first: Terminal = null;
++    try testing.expectEqual(
++        Result.success,
++        newWithOptions(null, &first, 80, 24, &options),
++    );
++    const exact = probe.stats().used;
++    try testing.expect(exact > 0);
++    free(first);
++    try testing.expectEqual(@as(usize, 0), probe.stats().used);
++
++    const shared = try PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        exact,
++    );
++    defer shared.releaseRef();
++    options.page_budget = shared;
++    try testing.expectEqual(
++        Result.success,
++        newWithOptions(null, &first, 80, 24, &options),
++    );
++    var denied: Terminal = null;
++    try testing.expectEqual(
++        Result.out_of_memory,
++        newWithOptions(null, &denied, 80, 24, &options),
++    );
++    try testing.expectEqual(exact, shared.stats().used);
++
++    free(first);
++    try testing.expectEqual(@as(usize, 0), shared.stats().used);
++    try testing.expectEqual(
++        Result.success,
++        newWithOptions(null, &first, 80, 24, &options),
++    );
++    free(first);
++}
++
++test "lazy alternate denial persists in terminal-local failure sink" {
++    const PageBudget = PageList.PageBudget;
++    const probe = try PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        std.math.maxInt(usize),
++    );
++    defer probe.releaseRef();
++    var options: CreateOptions = .{ .page_budget = probe };
++    var terminal: Terminal = null;
++    try testing.expectEqual(
++        Result.success,
++        newWithOptions(null, &terminal, 80, 24, &options),
++    );
++    const exact = probe.stats().used;
++    free(terminal);
++
++    const capped = try PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        exact,
++    );
++    defer capped.releaseRef();
++    options.page_budget = capped;
++    try testing.expectEqual(
++        Result.success,
++        newWithOptions(null, &terminal, 80, 24, &options),
++    );
++    defer free(terminal);
++
++    vt_write(terminal, "\x1b[?1049h", 8);
++    var epoch: usize = 0;
++    var failure: page_budget_c.Failure = .none;
++    var active: TerminalScreen = undefined;
++    try testing.expectEqual(
++        Result.success,
++        get(terminal, .page_budget_failure_epoch, @ptrCast(&epoch)),
++    );
++    try testing.expectEqual(
++        Result.success,
++        get(terminal, .page_budget_last_failure, @ptrCast(&failure)),
++    );
++    try testing.expectEqual(
++        Result.success,
++        get(terminal, .active_screen, @ptrCast(&active)),
++    );
++    try testing.expect(epoch > 0);
++    try testing.expectEqual(page_budget_c.Failure.budget_exhausted, failure);
++    try testing.expectEqual(TerminalScreen.primary, active);
++}
++
+ test "new invalid value" {
+     var t: Terminal = null;
+ 
+diff --git a/src/terminal/hash_map.zig b/src/terminal/hash_map.zig
+index abef87e..fc40685 100644
+--- a/src/terminal/hash_map.zig
++++ b/src/terminal/hash_map.zig
+@@ -121,7 +121,11 @@ pub fn OffsetHashMap(
+         /// HashMap with the given capacity. The base ptr must also be
+         /// aligned to base_align.
+         pub fn layout(cap: Unmanaged.Size) Layout {
+-            return Unmanaged.layoutForSize(cap);
++            return checkedLayout(cap) catch unreachable;
++        }
++
++        pub fn checkedLayout(cap: Unmanaged.Size) error{Overflow}!Layout {
++            return Unmanaged.checkedLayoutForSize(cap);
+         }
+ 
+         /// Initialize a new HashMap with the given capacity and backing
+@@ -928,6 +932,12 @@ fn HashMapUnmanaged(
+         /// because capacity is rounded up to the next power of two. This is
+         /// a design requirement for this hash map implementation.
+         pub fn layoutForCapacity(new_capacity: Size) Layout {
++            return checkedLayoutForCapacity(new_capacity) catch unreachable;
++        }
++
++        pub fn checkedLayoutForCapacity(
++            new_capacity: Size,
++        ) error{Overflow}!Layout {
+             assert(new_capacity == 0 or std.math.isPowerOfTwo(new_capacity));
+ 
+             // Cast to usize to prevent overflow in size calculations.
+@@ -936,19 +946,29 @@ fn HashMapUnmanaged(
+ 
+             // Pack our metadata, keys, and values.
+             const meta_start = @sizeOf(Header);
+-            const meta_end = @sizeOf(Header) + cap * @sizeOf(Metadata);
+-            const keys_start = std.mem.alignForward(usize, meta_end, key_align);
+-            const keys_end = keys_start + cap * @sizeOf(K);
+-            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
+-            const vals_end = vals_start + cap * @sizeOf(V);
++            const metadata_size = std.math.mul(usize, cap, @sizeOf(Metadata)) catch
++                return error.Overflow;
++            const meta_end = std.math.add(usize, @sizeOf(Header), metadata_size) catch
++                return error.Overflow;
++            const keys_start = checkedAlignForward(meta_end, key_align) catch
++                return error.Overflow;
++            const keys_size = std.math.mul(usize, cap, @sizeOf(K)) catch
++                return error.Overflow;
++            const keys_end = std.math.add(usize, keys_start, keys_size) catch
++                return error.Overflow;
++            const vals_start = checkedAlignForward(keys_end, val_align) catch
++                return error.Overflow;
++            const vals_size = std.math.mul(usize, cap, @sizeOf(V)) catch
++                return error.Overflow;
++            const vals_end = std.math.add(usize, vals_start, vals_size) catch
++                return error.Overflow;
+ 
+             // Our total memory size required is the end of our values
+             // aligned to the base required alignment.
+-            const total_size = std.mem.alignForward(
+-                usize,
++            const total_size = checkedAlignForward(
+                 vals_end,
+                 base_align.toByteUnits(),
+-            );
++            ) catch return error.Overflow;
+ 
+             // The offsets we actually store in the map are from the
+             // metadata pointer so that we can use self.metadata as
+@@ -967,23 +987,32 @@ fn HashMapUnmanaged(
+         /// Returns a layout with enough raw slots to hold `new_size` entries
+         /// at the configured maximum load factor.
+         pub fn layoutForSize(new_size: Size) Layout {
+-            if (new_size == 0) return layoutForCapacity(0);
++            return checkedLayoutForSize(new_size) catch unreachable;
++        }
++
++        pub fn checkedLayoutForSize(new_size: Size) error{Overflow}!Layout {
++            if (new_size == 0) return checkedLayoutForCapacity(0);
+ 
+             // Scale the requested number of entries up to the raw slot count
+             // required by the load factor. Widen first so `new_size * 100`
+             // cannot overflow Size.
++            const scaled_size = std.math.mul(
++                u64,
++                @as(u64, new_size),
++                100,
++            ) catch return error.Overflow;
+             const minimum_capacity = std.math.divCeil(
+                 u64,
+-                @as(u64, new_size) * 100,
++                scaled_size,
+                 max_load_percentage,
+-            ) catch unreachable;
++            ) catch return error.Overflow;
+ 
+             // Capacities must be powers of two, so the largest capacity that
+             // fits in Size is the highest bit rather than maxInt(Size).
+             const max_capacity = @as(u64, 1) <<
+                 (@typeInfo(Size).int.bits - 1);
+             if (minimum_capacity > max_capacity) {
+-                return layoutForCapacity(@intCast(max_capacity));
++                return checkedLayoutForCapacity(@intCast(max_capacity));
+             }
+ 
+             // Linear probing uses a mask for wraparound, which requires the
+@@ -991,8 +1020,15 @@ fn HashMapUnmanaged(
+             const raw_capacity = std.math.ceilPowerOfTwo(
+                 u64,
+                 minimum_capacity,
+-            ) catch unreachable;
+-            return layoutForCapacity(@intCast(raw_capacity));
++            ) catch return error.Overflow;
++            return checkedLayoutForCapacity(@intCast(raw_capacity));
++        }
++
++        fn checkedAlignForward(value: usize, alignment: usize) error{Overflow}!usize {
++            assert(std.math.isPowerOfTwo(alignment));
++            const mask = alignment - 1;
++            const added = try std.math.add(usize, value, mask);
++            return added & ~mask;
+         }
+     };
+ }
+diff --git a/src/terminal/page.zig b/src/terminal/page.zig
+index c2814ae..db77b2f 100644
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -1727,6 +1727,172 @@ pub const Page = struct {
+         capacity: Capacity,
+     };
+ 
++    pub const LayoutError = error{
++        InvalidCapacity,
++        LayoutOverflow,
++        PageTooLarge,
++    };
++
++    /// Validate untrusted capacity before calling `layout` or allocating.
++    ///
++    /// Snapshot capacity fields are attacker-controlled. The ordinary layout
++    /// fast path relies on native invariants and uses unchecked arithmetic, so
++    /// decoders must cross this checked boundary first.
++    pub fn checkedLayout(cap: Capacity) LayoutError!Layout {
++        if (cap.cols == 0 or cap.rows == 0) return error.InvalidCapacity;
++
++        const rows_start = 0;
++        const rows_size = std.math.mul(
++            usize,
++            @as(usize, cap.rows),
++            @sizeOf(Row),
++        ) catch return error.LayoutOverflow;
++        const rows_end = checkedAdd(rows_start, rows_size) catch
++            return error.LayoutOverflow;
++
++        const cells_count = std.math.mul(
++            usize,
++            @as(usize, cap.cols),
++            @as(usize, cap.rows),
++        ) catch return error.LayoutOverflow;
++        const cells_size = std.math.mul(
++            usize,
++            cells_count,
++            @sizeOf(Cell),
++        ) catch return error.LayoutOverflow;
++        const cells_start = checkedAlignForward(rows_end, @alignOf(Cell)) catch
++            return error.LayoutOverflow;
++        const cells_end = checkedAdd(cells_start, cells_size) catch
++            return error.LayoutOverflow;
++
++        const styles_layout = StyleSet.Layout.checkedInit(cap.styles) catch
++            return error.LayoutOverflow;
++        const styles_start = checkedAlignForward(
++            cells_end,
++            StyleSet.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const styles_end = checkedAdd(styles_start, styles_layout.total_size) catch
++            return error.LayoutOverflow;
++
++        const grapheme_alloc_layout = GraphemeAlloc.checkedLayout(cap.grapheme_bytes) catch
++            return error.LayoutOverflow;
++        const grapheme_alloc_start = checkedAlignForward(
++            styles_end,
++            GraphemeAlloc.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const grapheme_alloc_end = checkedAdd(
++            grapheme_alloc_start,
++            grapheme_alloc_layout.total_size,
++        ) catch return error.LayoutOverflow;
++
++        const grapheme_count: usize = if (cap.grapheme_bytes == 0)
++            0
++        else count: {
++            const base = std.math.divCeil(
++                usize,
++                cap.grapheme_bytes,
++                grapheme_chunk,
++            ) catch return error.LayoutOverflow;
++            break :count std.math.ceilPowerOfTwo(usize, base) catch
++                return error.LayoutOverflow;
++        };
++        const grapheme_map_count = std.math.cast(
++            GraphemeMap.Unmanaged.Size,
++            grapheme_count,
++        ) orelse return error.LayoutOverflow;
++        const grapheme_map_layout = GraphemeMap.checkedLayout(grapheme_map_count) catch
++            return error.LayoutOverflow;
++        const grapheme_map_start = checkedAlignForward(
++            grapheme_alloc_end,
++            GraphemeMap.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const grapheme_map_end = checkedAdd(
++            grapheme_map_start,
++            grapheme_map_layout.total_size,
++        ) catch return error.LayoutOverflow;
++
++        const string_alloc_layout = StringAlloc.checkedLayout(cap.string_bytes) catch
++            return error.LayoutOverflow;
++        const string_alloc_start = checkedAlignForward(
++            grapheme_map_end,
++            StringAlloc.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const string_alloc_end = checkedAdd(
++            string_alloc_start,
++            string_alloc_layout.total_size,
++        ) catch return error.LayoutOverflow;
++
++        const hyperlink_count = @divFloor(
++            cap.hyperlink_bytes,
++            @sizeOf(hyperlink.Set.Item),
++        );
++        const hyperlink_set_layout = hyperlink.Set.Layout.checkedInit(hyperlink_count) catch
++            return error.LayoutOverflow;
++        const hyperlink_set_start = checkedAlignForward(
++            string_alloc_end,
++            hyperlink.Set.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const hyperlink_set_end = checkedAdd(
++            hyperlink_set_start,
++            hyperlink_set_layout.total_size,
++        ) catch return error.LayoutOverflow;
++
++        const hyperlink_map_count = std.math.mul(
++            u32,
++            std.math.cast(u32, hyperlink_count) orelse
++                return error.LayoutOverflow,
++            hyperlink_cell_multiplier,
++        ) catch return error.LayoutOverflow;
++        const hyperlink_map_layout = hyperlink.Map.checkedLayout(hyperlink_map_count) catch
++            return error.LayoutOverflow;
++        const hyperlink_map_start = checkedAlignForward(
++            hyperlink_set_end,
++            hyperlink.Map.base_align.toByteUnits(),
++        ) catch return error.LayoutOverflow;
++        const hyperlink_map_end = checkedAdd(
++            hyperlink_map_start,
++            hyperlink_map_layout.total_size,
++        ) catch return error.LayoutOverflow;
++
++        const total_size = checkedAlignForward(
++            hyperlink_map_end,
++            std.heap.page_size_min,
++        ) catch return error.LayoutOverflow;
++        if (total_size > size.max_page_size) return error.PageTooLarge;
++
++        return .{
++            .total_size = total_size,
++            .rows_start = rows_start,
++            .rows_size = rows_size,
++            .cells_start = cells_start,
++            .cells_size = cells_size,
++            .styles_start = styles_start,
++            .styles_layout = styles_layout,
++            .grapheme_alloc_start = grapheme_alloc_start,
++            .grapheme_alloc_layout = grapheme_alloc_layout,
++            .grapheme_map_start = grapheme_map_start,
++            .grapheme_map_layout = grapheme_map_layout,
++            .string_alloc_start = string_alloc_start,
++            .string_alloc_layout = string_alloc_layout,
++            .hyperlink_map_start = hyperlink_map_start,
++            .hyperlink_map_layout = hyperlink_map_layout,
++            .hyperlink_set_start = hyperlink_set_start,
++            .hyperlink_set_layout = hyperlink_set_layout,
++            .capacity = cap,
++        };
++    }
++
++    fn checkedAdd(a: usize, b: usize) error{Overflow}!usize {
++        return std.math.add(usize, a, b);
++    }
++
++    fn checkedAlignForward(value: usize, alignment: usize) error{Overflow}!usize {
++        assert(std.math.isPowerOfTwo(alignment));
++        const mask = alignment - 1;
++        const added = try checkedAdd(value, mask);
++        return added & ~mask;
++    }
++
+     /// The memory layout for a page given a desired minimum cols
+     /// and rows size.
+     pub inline fn layout(cap: Capacity) Layout {
+diff --git a/src/terminal/ref_counted_set.zig b/src/terminal/ref_counted_set.zig
+index 97fa870..05298e3 100644
+--- a/src/terminal/ref_counted_set.zig
++++ b/src/terminal/ref_counted_set.zig
+@@ -169,6 +169,10 @@ pub fn RefCountedSet(
+             /// The returned layout `cap` property will be 1 more than the number
+             /// of items that the set can actually store, since ID 0 is reserved.
+             pub fn init(cap: usize) Layout {
++                return checkedInit(cap) catch unreachable;
++            }
++
++            pub fn checkedInit(cap: usize) error{Overflow}!Layout {
+                 assert(cap <= @as(usize, @intCast(std.math.maxInt(Id))) + 1);
+ 
+                 // Zero-cap set is valid, return special case
+@@ -181,16 +185,26 @@ pub fn RefCountedSet(
+                     .total_size = 0,
+                 };
+ 
+-                const table_cap: usize = std.math.ceilPowerOfTwoAssert(usize, cap);
+-                const items_cap: usize = @intFromFloat(load_factor * @as(f64, @floatFromInt(table_cap)));
++                const table_cap: usize = std.math.ceilPowerOfTwo(usize, cap) catch
++                    return error.Overflow;
++                const items_scaled = std.math.mul(usize, table_cap, 13) catch
++                    return error.Overflow;
++                const items_cap = @divFloor(items_scaled, 16);
+ 
+                 const table_mask: Id = @intCast((@as(usize, 1) << std.math.log2_int(usize, table_cap)) - 1);
+ 
+                 const table_start = 0;
+-                const table_end = table_start + table_cap * @sizeOf(Id);
+-
+-                const items_start = std.mem.alignForward(usize, table_end, @alignOf(Item));
+-                const items_end = items_start + items_cap * @sizeOf(Item);
++                const table_size = std.math.mul(usize, table_cap, @sizeOf(Id)) catch
++                    return error.Overflow;
++                const table_end = std.math.add(usize, table_start, table_size) catch
++                    return error.Overflow;
++
++                const items_start = checkedAlignForward(table_end, @alignOf(Item)) catch
++                    return error.Overflow;
++                const items_size = std.math.mul(usize, items_cap, @sizeOf(Item)) catch
++                    return error.Overflow;
++                const items_end = std.math.add(usize, items_start, items_size) catch
++                    return error.Overflow;
+ 
+                 const total_size = items_end;
+ 
+@@ -203,6 +217,13 @@ pub fn RefCountedSet(
+                     .total_size = total_size,
+                 };
+             }
++
++            fn checkedAlignForward(value: usize, alignment: usize) error{Overflow}!usize {
++                assert(std.math.isPowerOfTwo(alignment));
++                const mask = alignment - 1;
++                const added = try std.math.add(usize, value, mask);
++                return added & ~mask;
++            }
+         };
+ 
+         pub fn init(base: OffsetBuf, l: Layout, context: Context) Self {
+diff --git a/src/terminal/snapshot/page.zig b/src/terminal/snapshot/page.zig
+index 0d166e3..a3da086 100644
+--- a/src/terminal/snapshot/page.zig
++++ b/src/terminal/snapshot/page.zig
+@@ -120,6 +120,7 @@ const PayloadEncodeError = hyperlink.EncodeError || grid.EncodeError;
+ 
+ const PayloadDecodeError = std.Io.Reader.Error ||
+     Header.CapacityError ||
++    TerminalPage.LayoutError ||
+     grid.DecodeError ||
+     error{
+         /// The hyperlink kind is not defined by snapshot version 1.
+@@ -196,7 +197,8 @@ pub const Decoder = struct {
+         }
+ 
+         self.header = try Header.decode(self.record_reader.payloadReader());
+-        _ = try self.header.pageCapacity();
++        const page_capacity = try self.header.pageCapacity();
++        _ = try TerminalPage.checkedLayout(page_capacity);
+     }
+ 
+     /// Return the exact native capacity advertised by the PAGE header.
+@@ -339,6 +341,7 @@ fn decodePayload(
+ ) PayloadDecodeError!TerminalPage {
+     const header = try Header.decode(reader);
+     const capacity = try header.pageCapacity();
++    _ = try TerminalPage.checkedLayout(capacity);
+     var page = TerminalPage.init(capacity) catch
+         return error.OutOfMemory;
+     errdefer page.deinit();
+@@ -872,6 +875,33 @@ test "framed PAGE golden empty record" {
+     );
+ }
+ 
++test "framed PAGE rejects malformed capacity before page allocation" {
++    const testing = std.testing;
++    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
++    defer encoded.deinit();
++    var stream: record.Writer = .init(testing.allocator, &encoded.writer);
++    defer stream.deinit();
++    {
++        const payload = stream.begin(.page);
++        errdefer stream.cancel();
++        try (Header{
++            .columns = std.math.maxInt(u16),
++            .rows = std.math.maxInt(u16),
++            .style_count = 0,
++            .hyperlink_count = 0,
++            .style_capacity = std.math.maxInt(u16),
++            .hyperlink_capacity_bytes = std.math.maxInt(u16),
++            .grapheme_capacity_bytes = std.math.maxInt(u32),
++            .string_capacity_bytes = std.math.maxInt(u32),
++        }).encode(payload);
++        try stream.finish();
++    }
++
++    var source: std.Io.Reader = .fixed(encoded.written());
++    var decoder: Decoder = undefined;
++    try testing.expectError(error.PageTooLarge, decoder.init(&source));
++}
++
+ test "framed PAGE rejects incomplete wide cells transactionally" {
+     const testing = std.testing;
+ 
+diff --git a/src/terminal/snapshot/screen.zig b/src/terminal/snapshot/screen.zig
+index d4ef16f..6e012ab 100644
+--- a/src/terminal/snapshot/screen.zig
++++ b/src/terminal/snapshot/screen.zig
+@@ -373,6 +373,8 @@ pub fn decode(
+                 0
+             else
+                 options.max_scrollback_lines,
++            .page_budget = options.page_budget,
++            .page_budget_failure_sink = options.page_budget_failure_sink,
+         });
+         defer builder.deinit();
+ 
+diff --git a/src/terminal/snapshot/snapshot.zig b/src/terminal/snapshot/snapshot.zig
+index b2dfbe1..efef1ea 100644
+--- a/src/terminal/snapshot/snapshot.zig
++++ b/src/terminal/snapshot/snapshot.zig
+@@ -100,6 +100,9 @@ pub const DecodeOptions = struct {
+     /// Largest non-ground continuation the decoder may allocate and return.
+     /// Set this to zero when only ground-state snapshots are acceptable.
+     max_continuation_bytes: usize,
++
++    /// Shared hard accounting for snapshot-created page mappings.
++    page_budget: ?*TerminalPageList.PageBudget = null,
+ };
+ 
+ /// One decoded Terminal and the bytes needed to resume its Stream.
+@@ -300,7 +303,12 @@ pub const Decoder = struct {
+         // screen slots with their final routing. SCREEN values replace those
+         // slots in place so ScreenSet pointers, including the active
+         // pointer, stay valid.
+-        var result = try terminal.decode(reader, io_, alloc);
++        var result = try terminal.decodeWithPageBudget(
++            reader,
++            io_,
++            alloc,
++            options.page_budget,
++        );
+         errdefer result.deinit(alloc);
+ 
+         // TERMINAL initializes exactly the number of screen slots it
+@@ -322,6 +330,8 @@ pub const Decoder = struct {
+                     null
+                 else
+                     explicit_lines,
++                .page_budget = options.page_budget,
++                .page_budget_failure_sink = result.page_budget_failure_sink,
+             };
+         };
+ 
+@@ -707,6 +717,117 @@ fn testTopLeftCodepoint(terminal_screen: *const TerminalScreen) u21 {
+         .page().getRowAndCell(0, 0).cell.codepoint();
+ }
+ 
++test "shared page budget exhausts transactionally at READY and retries after free" {
++    const testing = std.testing;
++    var source_terminal = try testHistoryTerminal(0);
++    defer source_terminal.deinit(testing.allocator);
++    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
++    defer encoded.deinit();
++    try encode(testing.allocator, &encoded.writer, &source_terminal, test_encode_options);
++
++    const probe = try TerminalPageList.PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        std.math.maxInt(usize),
++    );
++    defer probe.releaseRef();
++    var probe_source: std.Io.Reader = .fixed(encoded.written());
++    var probe_decoder: Decoder = .init(&probe_source);
++    var probe_result = try probe_decoder.ready(testing.allocator, testing.io, .{
++        .max_continuation_bytes = 1024,
++        .page_budget = probe,
++    });
++    const exact = probe.stats().used;
++    try testing.expect(exact > 0);
++    probe_result.deinit(testing.allocator);
++    try testing.expectEqual(@as(usize, 0), probe.stats().used);
++
++    const shared_limit = try std.math.mul(usize, exact, 2);
++    const shared = try TerminalPageList.PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        shared_limit,
++    );
++    defer shared.releaseRef();
++    var first_source: std.Io.Reader = .fixed(encoded.written());
++    var first_decoder: Decoder = .init(&first_source);
++    var first = try first_decoder.ready(testing.allocator, testing.io, .{
++        .max_continuation_bytes = 1024,
++        .page_budget = shared,
++    });
++
++    var denied_source: std.Io.Reader = .fixed(encoded.written());
++    var denied_decoder: Decoder = .init(&denied_source);
++    try testing.expectError(error.OutOfMemory, denied_decoder.ready(
++        testing.allocator,
++        testing.io,
++        .{ .max_continuation_bytes = 1024, .page_budget = shared },
++    ));
++    try testing.expectEqual(exact, shared.stats().used);
++
++    first.deinit(testing.allocator);
++    try testing.expectEqual(@as(usize, 0), shared.stats().used);
++    var retry_source: std.Io.Reader = .fixed(encoded.written());
++    var retry_decoder: Decoder = .init(&retry_source);
++    var retry = try retry_decoder.ready(testing.allocator, testing.io, .{
++        .max_continuation_bytes = 1024,
++        .page_budget = shared,
++    });
++    retry.deinit(testing.allocator);
++}
++
++test "HISTORY cannot grow beyond READY shared page budget" {
++    const testing = std.testing;
++    var source_terminal = try testHistoryTerminal(8);
++    defer source_terminal.deinit(testing.allocator);
++    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
++    defer encoded.deinit();
++    try encode(testing.allocator, &encoded.writer, &source_terminal, test_encode_options);
++
++    const probe = try TerminalPageList.PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        std.math.maxInt(usize),
++    );
++    defer probe.releaseRef();
++    var probe_source: std.Io.Reader = .fixed(encoded.written());
++    var probe_decoder: Decoder = .init(&probe_source);
++    var probe_result = try probe_decoder.ready(testing.allocator, testing.io, .{
++        .max_continuation_bytes = 1024,
++        .page_budget = probe,
++    });
++    const ready_bytes = probe.stats().used;
++    probe_result.deinit(testing.allocator);
++
++    const ready_limit = try std.math.mul(usize, ready_bytes, 2);
++    const budget = try TerminalPageList.PageBudget.create(
++        testing.allocator,
++        testing.allocator,
++        ready_limit,
++    );
++    defer budget.releaseRef();
++    var source: std.Io.Reader = .fixed(encoded.written());
++    var decoder: Decoder = .init(&source);
++    var decoded = try decoder.ready(testing.allocator, testing.io, .{
++        .max_continuation_bytes = 1024,
++        .page_budget = budget,
++    });
++    defer decoded.deinit(testing.allocator);
++    const restored = &decoded.terminal.?;
++    var exhausted = false;
++    while (true) {
++        _ = decoder.next(testing.allocator, restored) catch |err| switch (err) {
++            error.OutOfMemory => {
++                exhausted = true;
++                break;
++            },
++            else => return err,
++        } orelse break;
++    }
++    try testing.expect(exhausted);
++    try testing.expect(budget.stats().used <= ready_limit);
++}
++
+ test "complete snapshot round trip with history and alternate screen" {
+     const testing = std.testing;
+ 
+diff --git a/src/terminal/snapshot/terminal.zig b/src/terminal/snapshot/terminal.zig
+index f20b977..82b7c10 100644
+--- a/src/terminal/snapshot/terminal.zig
++++ b/src/terminal/snapshot/terminal.zig
+@@ -256,6 +256,7 @@ const terminal_modes = @import("../modes.zig");
+ const terminal_mouse = @import("../mouse.zig");
+ const terminal_osc = @import("../osc.zig");
+ const Terminal = @import("../Terminal.zig");
++const TerminalPageList = @import("../PageList.zig");
+ const TerminalScreen = @import("../Screen.zig");
+ const TerminalScreenKey = @import("../ScreenSet.zig").Key;
+ const TerminalTabstops = @import("../Tabstops.zig");
+@@ -949,6 +950,16 @@ pub fn decode(
+     source: *std.Io.Reader,
+     io_: std.Io,
+     alloc: Allocator,
++) DecodeError!Terminal {
++    return decodeWithPageBudget(source, io_, alloc, null);
++}
++
++/// Decode while charging all native screen page mappings to a shared budget.
++pub fn decodeWithPageBudget(
++    source: *std.Io.Reader,
++    io_: std.Io,
++    alloc: Allocator,
++    page_budget: ?*TerminalPageList.PageBudget,
+ ) DecodeError!Terminal {
+     // Finish the complete record before constructing native terminal state.
+     var payload: DecodedPayload = payload: {
+@@ -979,6 +990,7 @@ pub fn decode(
+         .rows = header.rows,
+         .max_scrollback_bytes = max_scrollback_bytes,
+         .max_scrollback_lines = max_scrollback_lines,
++        .page_budget = page_budget,
+         .colors = .{
+             .background = header.background,
+             .foreground = header.foreground,
+@@ -998,6 +1010,8 @@ pub fn decode(
+             .cols = header.columns,
+             .rows = header.rows,
+             .max_scrollback_bytes = 0,
++            .page_budget = page_budget,
++            .page_budget_failure_sink = result.page_budget_failure_sink,
+         });
+     }
+     result.screens.switchTo(header.active_screen_key);

@@ -2577,6 +2577,20 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     agent
   end
 
+  test "stop terminates a worker blocked on interview input" do
+    agent = start_isolated_agent()
+
+    worker =
+      LoopBindings.spawn_worker(agent, fn ->
+        Ourocode.Runtime.LoopBindingInterviewAwaiter.await(agent, "parent-stop", "question?", [])
+      end)
+
+    wait_for(fn -> Agent.get(agent, &is_pid(&1.interview_waiter)) end)
+    monitor_ref = Process.monitor(worker)
+    assert :ok = LoopBindings.stop(agent)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}, 1_000
+  end
+
   test "attach skips results without a runtime pipeline" do
     assert :skip == LoopBindings.attach(%{status: :healthy})
     assert :skip == LoopBindings.attach(%{status: :healthy, runtime: %{services: %{}}})

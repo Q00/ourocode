@@ -1,0 +1,4 @@
+module COuroRender [system] {
+    header "include/COuroRender.h"
+    export *
+}

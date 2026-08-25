@@ -9,6 +9,7 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmission do
   alias Ourocode.Terminal.EventLoopPromptFlow
   alias Ourocode.Terminal.EventLoopPromptInput
   alias Ourocode.Terminal.ParentWorkflowFeedback
+  alias Ourocode.Terminal.EventLoopState
 
   @spec submit(String.t(), map()) ::
           {:ok, map()} | {:error, term()}
@@ -79,8 +80,9 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmission do
          %{
            awaiting_state
            | iterations: state.iterations + 1,
-             submitted_tasks: [dispatched_task_request | state.submitted_tasks],
-             input_events: [input_event | state.input_events]
+             submitted_tasks:
+               EventLoopState.remember(state.submitted_tasks, dispatched_task_request),
+             input_events: EventLoopState.remember(state.input_events, input_event)
          }}
 
       {:error, reason} ->

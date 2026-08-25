@@ -8,6 +8,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiter do
   @spec await(pid(), term(), term(), [map()]) :: {:done, String.t()} | {:answer, String.t()}
   def await(agent, parent_call_id, prompt, options \\ []) when is_pid(agent) do
     waiter = self()
+    owner_ref = Process.monitor(agent)
 
     Agent.update(agent, fn state ->
       wait_state(state, parent_call_id, prompt, waiter, options)
@@ -15,7 +16,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiter do
 
     receive do
       {:interview_answer, text} ->
+        Process.demonitor(owner_ref, [:flush])
         classify_answer(text)
+
+      {:DOWN, ^owner_ref, :process, ^agent, _reason} ->
+        {:done, "cancel"}
     end
   end
 

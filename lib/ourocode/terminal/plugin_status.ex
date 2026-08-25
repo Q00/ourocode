@@ -1,4 +1,6 @@
 defmodule Ourocode.Terminal.PluginStatus do
+  alias Ourocode.Terminal.EventLoopState
+
   @moduledoc """
   Applies plugin-config reload events to terminal loop state.
   """
@@ -107,8 +109,8 @@ defmodule Ourocode.Terminal.PluginStatus do
     %{
       state
       | startup_result: startup_result,
-        plugin_status_updates: [
-          %{
+        plugin_status_updates:
+          EventLoopState.remember(state.plugin_status_updates, %{
             type: :terminal_plugin_status_updated,
             event_type: :terminal_plugin_status_updated,
             source: :terminal_runtime_event_loop,
@@ -118,9 +120,7 @@ defmodule Ourocode.Terminal.PluginStatus do
             rendered_area: status_area,
             ui_restart_required?: false,
             occurred_at_ms: Map.get(reload_event, :occurred_at_ms)
-          }
-          | state.plugin_status_updates
-        ]
+          })
     }
   end
 

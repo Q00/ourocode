@@ -8,6 +8,7 @@ defmodule Ourocode.Runtime.LocalInterviewFallback do
     InterviewWonderPrompt,
     LoopBindingEventFlow,
     LoopBindingInterviewAwaiter,
+    LoopBindings,
     WorkflowHarness
   }
 
@@ -26,7 +27,10 @@ defmodule Ourocode.Runtime.LocalInterviewFallback do
   @spec start(pid(), map(), String.t(), String.t(), Model.t(), String.t()) :: :ok
   def start(agent, task_request, parent_call_id, workflow_run_id, %Model{} = model, project_dir)
       when is_pid(agent) and is_map(task_request) do
-    spawn(fn -> run(agent, task_request, parent_call_id, workflow_run_id, model, project_dir) end)
+    LoopBindings.spawn_worker(agent, fn ->
+      run(agent, task_request, parent_call_id, workflow_run_id, model, project_dir)
+    end)
+
     :ok
   end
 

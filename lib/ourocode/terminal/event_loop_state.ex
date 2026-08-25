@@ -5,6 +5,15 @@ defmodule Ourocode.Terminal.EventLoopState do
 
   alias Ourocode.Runtime.FocusState
   alias Ourocode.Terminal.{EventLoopExit, FocusNavigation}
+  @history_limit 500
+
+  @doc false
+  @spec history_limit() :: pos_integer()
+  def history_limit, do: @history_limit
+
+  @spec remember(list(), term()) :: list()
+  def remember(history, event) when is_list(history),
+    do: [event | history] |> Enum.take(@history_limit)
 
   @spec build(map(), keyword() | map(), String.t()) :: map()
   def build(startup_result, options, default_prompt) when is_map(startup_result) do

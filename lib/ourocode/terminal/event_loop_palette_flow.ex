@@ -6,6 +6,7 @@ defmodule Ourocode.Terminal.EventLoopPaletteFlow do
   alias Ourocode.Terminal.CommandInput
   alias Ourocode.Terminal.EventLoopCommandPalette
   alias Ourocode.Terminal.EventLoopJournal
+  alias Ourocode.Terminal.EventLoopState
 
   @spec open(String.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   def open(line, state, registry) when is_binary(line) and is_map(state) and is_map(registry) do
@@ -21,7 +22,8 @@ defmodule Ourocode.Terminal.EventLoopPaletteFlow do
            state
            | iterations: state.iterations + 1,
              active_command_palette: %{registry: registry, opened_event: palette_event},
-             command_palette_events: [palette_event | state.command_palette_events]
+             command_palette_events:
+               EventLoopState.remember(state.command_palette_events, palette_event)
          }}
 
       {:error, reason} ->
@@ -55,7 +57,8 @@ defmodule Ourocode.Terminal.EventLoopPaletteFlow do
            state
            | iterations: state.iterations + 1,
              active_command_palette: nil,
-             command_palette_events: [selection_event | state.command_palette_events]
+             command_palette_events:
+               EventLoopState.remember(state.command_palette_events, selection_event)
          }}
 
       {:error, reason} ->
@@ -75,7 +78,8 @@ defmodule Ourocode.Terminal.EventLoopPaletteFlow do
          %{
            state
            | iterations: state.iterations + 1,
-             recoverable_errors: [selection_error | state.recoverable_errors]
+             recoverable_errors:
+               EventLoopState.remember(state.recoverable_errors, selection_error)
          }}
 
       {:error, reason} ->

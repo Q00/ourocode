@@ -13,6 +13,7 @@ defmodule Ourocode.Terminal.TuiStateInitial do
       buffer: draft,
       cursor: String.length(draft),
       leftover: "",
+      activity_lines: [],
       prev_screen: nil,
       render_theme: nil,
       port: nil,

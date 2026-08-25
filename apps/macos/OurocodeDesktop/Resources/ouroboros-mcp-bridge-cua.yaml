@@ -1,0 +1,16 @@
+mcp_servers:
+  - name: cua-rs
+    transport: stdio
+    command: /usr/bin/env
+    args:
+      - ourocode-cua-mcp-bridge
+      - cua-rs
+    env:
+      PATH: "${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      CUA_YIELD_TO_HUMAN: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+connection:
+  timeout_seconds: 30
+  retry_attempts: 2
+  health_check_interval: 60
+tool_prefix: "cua_"

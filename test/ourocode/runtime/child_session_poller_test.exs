@@ -244,4 +244,59 @@ defmodule Ourocode.Runtime.ChildSessionPollerTest do
     assert event.status == "completed"
     assert :none = poll.(%{})
   end
+
+  test "reuses one owned MCP session and closes it once" do
+    {:ok, agent} = Agent.start_link(&LoopBindingState.initial/0)
+    parent = self()
+
+    opener = fn _url, options, _protocol, _timeout ->
+      send(parent, :session_opened)
+      {:ok, Keyword.put(options, :headers, [{"mcp-session-id", "session-1"}]), true}
+    end
+
+    closer = fn _url, options, _timeout ->
+      send(parent, {:session_closed, options[:headers]})
+      :ok
+    end
+
+    poller =
+      ChildSessionPoller.start(agent,
+        child_id: "job-session",
+        job_id: "job-session",
+        parent_call_id: "parent-session",
+        mcp_url: "http://127.0.0.1:4000/mcp",
+        session_opener: opener,
+        session_closer: closer,
+        status_caller: fn options, payload ->
+          send(parent, {:status_session, options[:headers]})
+          {:ok, status_response(payload["params"]["arguments"]["job_id"], "completed")}
+        end,
+        interval_ms: 1
+      )
+
+    monitor_ref = Process.monitor(poller)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^poller, _reason}, 2_000
+    assert_receive :session_opened
+    assert_receive {:status_session, [{"mcp-session-id", "session-1"}]}
+    assert_receive {:session_closed, [{"mcp-session-id", "session-1"}]}
+    refute_receive :session_opened, 20
+  end
+
+  test "poller exits when its loop bindings owner stops" do
+    {:ok, agent} = Agent.start_link(&LoopBindingState.initial/0)
+
+    poller =
+      ChildSessionPoller.start(agent,
+        child_id: "job-owner",
+        job_id: "job-owner",
+        parent_call_id: "parent-owner",
+        mcp_url: "http://127.0.0.1:4000/mcp",
+        status_caller: fn _options, _payload -> {:error, :econnrefused} end,
+        interval_ms: 60_000
+      )
+
+    monitor_ref = Process.monitor(poller)
+    Ourocode.Runtime.LoopBindings.stop(agent)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^poller, _reason}, 1_000
+  end
 end

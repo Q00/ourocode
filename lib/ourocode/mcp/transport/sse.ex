@@ -20,6 +20,7 @@ defmodule Ourocode.MCP.Transport.SSE do
   alias Ourocode.MCP.Transport.SSE.State
   alias Ourocode.MCP.Transport.SSE.StreamProcessor
 
+  @max_transport_buffer_bytes 8_388_608
   @default_timeout 5_000
 
   @type option ::
@@ -128,6 +129,7 @@ defmodule Ourocode.MCP.Transport.SSE do
     ParentCall.handle_call(state, from, method, params, opts, @default_timeout)
   end
 
+  @impl true
   def handle_info({:request_timeout, request_id}, state) do
     case PendingRequest.pop(state, request_id) do
       {nil, state} ->
@@ -148,22 +150,31 @@ defmodule Ourocode.MCP.Transport.SSE do
     end
   end
 
-  @impl true
   def handle_info({:tcp, socket, chunk}, %{socket: socket, status: nil} = state) do
-    state =
-      StreamProcessor.process_response_chunk(%{
-        state
-        | response_buffer: state.response_buffer <> chunk
-      })
+    if byte_size(state.response_buffer) + byte_size(chunk) > @max_transport_buffer_bytes do
+      {:stop, {:response_buffer_too_large, @max_transport_buffer_bytes},
+       fail_pending(state, :response_buffer_too_large)}
+    else
+      state =
+        StreamProcessor.process_response_chunk(%{
+          state
+          | response_buffer: state.response_buffer <> chunk
+        })
 
-    :inet.setopts(socket, active: :once)
-    {:noreply, state}
+      :inet.setopts(socket, active: :once)
+      {:noreply, state}
+    end
   end
 
   def handle_info({:tcp, socket, chunk}, %{socket: socket} = state) do
-    state = StreamProcessor.process_sse_chunk(%{state | sse_buffer: state.sse_buffer <> chunk})
-    :inet.setopts(socket, active: :once)
-    {:noreply, state}
+    if byte_size(state.sse_buffer) + byte_size(chunk) > @max_transport_buffer_bytes do
+      {:stop, {:sse_buffer_too_large, @max_transport_buffer_bytes},
+       fail_pending(state, :sse_buffer_too_large)}
+    else
+      state = StreamProcessor.process_sse_chunk(%{state | sse_buffer: state.sse_buffer <> chunk})
+      :inet.setopts(socket, active: :once)
+      {:noreply, state}
+    end
   end
 
   def handle_info({:tcp_closed, socket}, %{socket: socket} = state) do

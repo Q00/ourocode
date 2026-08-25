@@ -137,6 +137,7 @@ defmodule Ourocode.Terminal.TuiStateTest do
 
   test "reverse-i-search finds, walks to older matches, and accepts into the buffer" do
     state = TuiState.start_link()
+
     for line <- ["make test", "ooo auto ship", "git status", "ooo pm design"],
         do: TuiState.remember_history(state, line)
 
@@ -185,5 +186,22 @@ defmodule Ourocode.Terminal.TuiStateTest do
     assert :ok = TuiState.handle_escape_clear(state)
     assert TuiState.buffer(state) == ""
     assert hd(TuiState.notifications(state)) == "input cleared"
+  end
+
+  test "activity capture retains a bounded recent window" do
+    state = TuiState.start_link()
+
+    captured =
+      Enum.map_join(1..10_000, "\n", fn index ->
+        "line-#{index}-" <> String.duplicate("x", 80)
+      end)
+
+    lines = TuiState.capture_activity(state, captured)
+    assert length(lines) == 500
+    assert List.last(lines) =~ "line-10000-"
+    assert Enum.sum(Enum.map(lines, &byte_size/1)) <= 262_144
+
+    assert :ok = TuiState.clear_activity(state)
+    assert TuiState.capture_activity(state, "") == []
   end
 end

@@ -8,6 +8,10 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.SSEStream do
   alias Ourocode.MCP.Transport.StreamableHTTP.RawEvent
   alias Ourocode.MCP.Transport.StreamableHTTP.Response
 
+  @max_buffer_bytes 1_048_576
+  @max_response_bytes 8_388_608
+  @max_progress_events 2_000
+
   @spec collect(
           port(),
           integer(),
@@ -24,6 +28,7 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.SSEStream do
     state = %{
       buffer: body_rest,
       events: [],
+      event_count: 0,
       next_event_seq: context.event_seq,
       response: nil,
       content_length: Response.content_length(headers),
@@ -69,41 +74,61 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.SSEStream do
   def raw_response_event_payload(parsed_event) when is_map(parsed_event), do: parsed_event
 
   defp drain(socket, status, headers, context, options, request, state, timeout, emit_fun) do
-    state = emit_complete_frames(status, headers, context, options, state, emit_fun)
-
     cond do
-      state.response ->
-        {:ok, state.response}
+      byte_size(state.buffer) > @max_buffer_bytes ->
+        {:error, {:sse_frame_too_large, @max_buffer_bytes}}
 
-      state.content_length && state.bytes_seen >= state.content_length ->
-        {:ok, state.response || Response.from_sse_events(Enum.reverse(state.events))}
+      state.event_count > @max_progress_events ->
+        {:error, {:sse_event_limit_exceeded, @max_progress_events}}
+
+      state.bytes_seen > @max_response_bytes ->
+        {:error, {:sse_response_too_large, @max_response_bytes}}
 
       true ->
-        case :gen_tcp.recv(socket, 0, timeout) do
-          {:ok, chunk} ->
-            next_state = %{
-              state
-              | buffer: state.buffer <> chunk,
-                bytes_seen: state.bytes_seen + byte_size(chunk)
-            }
+        state = emit_complete_frames(status, headers, context, options, state, emit_fun)
 
-            drain(
-              socket,
-              status,
-              headers,
-              context,
-              options,
-              request,
-              next_state,
-              timeout,
-              emit_fun
-            )
+        cond do
+          state.response ->
+            {:ok, state.response}
 
-          {:error, :closed} ->
+          state.content_length && state.bytes_seen >= state.content_length ->
             {:ok, state.response || Response.from_sse_events(Enum.reverse(state.events))}
 
-          {:error, reason} ->
-            {:error, {:sse_recv_failed, reason}}
+          true ->
+            case :gen_tcp.recv(socket, 0, timeout) do
+              {:ok, chunk}
+              when byte_size(state.buffer) + byte_size(chunk) <= @max_buffer_bytes and
+                     state.bytes_seen + byte_size(chunk) <= @max_response_bytes ->
+                next_state = %{
+                  state
+                  | buffer: state.buffer <> chunk,
+                    bytes_seen: state.bytes_seen + byte_size(chunk)
+                }
+
+                drain(
+                  socket,
+                  status,
+                  headers,
+                  context,
+                  options,
+                  request,
+                  next_state,
+                  timeout,
+                  emit_fun
+                )
+
+              {:ok, chunk} when state.bytes_seen + byte_size(chunk) > @max_response_bytes ->
+                {:error, {:sse_response_too_large, @max_response_bytes}}
+
+              {:ok, _chunk} ->
+                {:error, {:sse_frame_too_large, @max_buffer_bytes}}
+
+              {:error, :closed} ->
+                {:ok, state.response || Response.from_sse_events(Enum.reverse(state.events))}
+
+              {:error, reason} ->
+                {:error, {:sse_recv_failed, reason}}
+            end
         end
     end
   end
@@ -143,6 +168,7 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.SSEStream do
           %{
             acc
             | events: [parsed_event | acc.events],
+              event_count: acc.event_count + 1,
               next_event_seq: acc.next_event_seq + length(lifecycle_events),
               response: Response.from_parsed_events([parsed_event]) || acc.response
           }

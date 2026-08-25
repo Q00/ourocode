@@ -1,0 +1,47 @@
+fanout_32_canonical_viewport_v1
+utc=2026-08-08T21:29:33Z
+os=Darwin jaegyuleeui-MacBookPro.local 25.5.0 Darwin Kernel Version 25.5.0: Mon Apr 27 20:41:06 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6030 arm64
+broker_pid=96426
+binary=/Users/jaegyu.lee/Project/ourocode/target/release/ouro-broker
+broker_generation=14172016437147396570
+terminal_count=32
+all_running=true
+minimum_cursor=60
+maximum_cursor=60
+threads=1
+ps_pid=96426 rss_kib=25424 vsz_kib=435300432 cpu_percent=1.6
+footprint_begin
+======================================================================
+ouro-broker [96426]: 64-bit    Footprint: 24 MB (16384 bytes per page)
+======================================================================
+
+  Dirty      Clean  Reclaimable    Regions    Category
+    ---        ---          ---        ---    ---
+  23 MB        0 B          0 B         11    MALLOC_SMALL
+ 416 KB        0 B          0 B          8    MALLOC metadata
+ 240 KB        0 B          0 B          1    page table
+ 132 KB        0 B          0 B         36    __DATA_DIRTY
+  90 KB        0 B          0 B         36    __DATA
+  64 KB        0 B          0 B          1    MALLOC_TINY
+  50 KB        0 B          0 B        130    unused dyld shared cache area
+  48 KB        0 B          0 B          2    stack
+  32 KB        0 B          0 B          6    untagged (VM_ALLOCATE)
+  32 KB        0 B          0 B          2    __TPRO_CONST
+  16 KB        0 B          0 B         45    __DATA_CONST
+  16 KB        0 B          0 B          1    os_alloc_once
+  16 KB        0 B          0 B          1    tag 22
+    0 B     448 KB          0 B         48    __TEXT
+    0 B      16 KB          0 B          3    __LINKEDIT
+    0 B        0 B          0 B         47    __AUTH_CONST
+    0 B        0 B          0 B         12    __AUTH
+    0 B        0 B          0 B          1    mapped file
+    ---        ---          ---        ---    ---
+  24 MB     464 KB          0 B        393    TOTAL
+
+Auxiliary data:
+    phys_footprint: 24 MB
+    phys_footprint_peak: 24 MB
+
+footprint_end
+ui_less_terminal_count=32
+ui_less_all_running=true

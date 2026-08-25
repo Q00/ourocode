@@ -18,6 +18,7 @@ defmodule Ourocode.Runtime.ChildSessionPoller do
   """
 
   alias Ourocode.MCP.Transport.StreamableHTTP
+  alias Ourocode.MCP.Transport.StreamableHTTP.Session
   alias Ourocode.Runtime.{InterviewResponse, LoopBindings}
 
   @default_interval_ms 2_500
@@ -25,6 +26,7 @@ defmodule Ourocode.Runtime.ChildSessionPoller do
   @default_max_polls 240
   @poll_timeout_ms 15_000
   @terminal_statuses ["completed", "failed", "cancelled", "interrupted"]
+  @protocol_version "2025-06-18"
 
   @doc """
   Spawns the polling loop. Required opts: `:child_id`, `:job_id`,
@@ -33,17 +35,53 @@ defmodule Ourocode.Runtime.ChildSessionPoller do
   """
   @spec start(pid(), keyword()) :: pid()
   def start(agent, opts) when is_pid(agent) and is_list(opts) do
+    status_caller = Keyword.get(opts, :status_caller, &StreamableHTTP.execute_parent_call/2)
+
+    session_opener =
+      Keyword.get(opts, :session_opener) ||
+        if Keyword.has_key?(opts, :status_caller) do
+          fn _url, options, _protocol, _timeout -> {:ok, options, false} end
+        else
+          &Session.open_owned/4
+        end
+
     ctx = %{
       child_id: Keyword.fetch!(opts, :child_id),
       job_id: Keyword.fetch!(opts, :job_id),
       parent_call_id: Keyword.fetch!(opts, :parent_call_id),
       mcp_url: Keyword.fetch!(opts, :mcp_url),
-      status_caller: Keyword.get(opts, :status_caller, &StreamableHTTP.execute_parent_call/2),
+      status_caller: status_caller,
+      session_opener: session_opener,
+      session_closer: Keyword.get(opts, :session_closer, &Session.terminate/3),
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
       max_polls: Keyword.get(opts, :max_polls, @default_max_polls)
     }
 
-    spawn(fn -> loop(agent, ctx, 1) end)
+    LoopBindings.spawn_worker(agent, fn -> run_session(agent, ctx) end)
+  end
+
+  defp run_session(agent, ctx) do
+    base_options = [
+      url: ctx.mcp_url,
+      parent_call_id: ctx.parent_call_id,
+      runtime_source: "ouroboros",
+      mcp_session: true,
+      timeout: @poll_timeout_ms
+    ]
+
+    case ctx.session_opener.(ctx.mcp_url, base_options, @protocol_version, @poll_timeout_ms) do
+      {:ok, request_options, owned?} ->
+        if owned? do
+          LoopBindings.register_worker_cleanup(fn ->
+            ctx.session_closer.(ctx.mcp_url, request_options, @poll_timeout_ms)
+          end)
+        end
+
+        loop(agent, Map.put(ctx, :request_options, request_options), 1)
+
+      _error ->
+        :ok
+    end
   end
 
   defp loop(agent, ctx, poll_seq) do
@@ -86,16 +124,7 @@ defmodule Ourocode.Runtime.ChildSessionPoller do
   end
 
   defp status_result(ctx, poll_seq) do
-    ctx.status_caller.(
-      [
-        url: ctx.mcp_url,
-        parent_call_id: ctx.parent_call_id,
-        runtime_source: "ouroboros",
-        mcp_session: true,
-        timeout: @poll_timeout_ms
-      ],
-      status_payload(ctx, poll_seq)
-    )
+    ctx.status_caller.(ctx.request_options, status_payload(ctx, poll_seq))
   rescue
     exception -> {:error, exception}
   end
@@ -168,7 +197,10 @@ defmodule Ourocode.Runtime.ChildSessionPoller do
     do: text
 
   defp status_content(ctx, poll_seq, _text, status) do
-    "Ouroboros job " <> ctx.job_id <> " " <> (status || "running") <>
+    "Ouroboros job " <>
+      ctx.job_id <>
+      " " <>
+      (status || "running") <>
       " (poll " <> Integer.to_string(poll_seq) <> ")"
   end
 

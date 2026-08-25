@@ -13,6 +13,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     LocalInterviewFallback,
     InterviewWorkflowInvocation,
     LoopBindingEventFlow,
+    LoopBindings,
     McpDaemonBinding,
     OuroborosDirectInvocation,
     OuroborosWorkflowInvocation,
@@ -122,7 +123,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
       if interview_task?(task_request),
         do: InterviewProgress.mark_dispatching(agent, task_request, parent_call_id)
 
-      spawn(fn ->
+      LoopBindings.spawn_worker(agent, fn ->
         dispatch_workflow(
           agent,
           runtime,
@@ -347,7 +348,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
 
   defp start_relay(agent, runtime, parent_call_id, workflow_run_id, payload, model, callbacks) do
     if interview_payload?(payload) do
-      spawn(fn ->
+      LoopBindings.spawn_worker(agent, fn ->
         callbacks.run_interview_session.(
           agent,
           parent_call_id: parent_call_id,
@@ -359,7 +360,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
         )
       end)
     else
-      spawn(fn ->
+      LoopBindings.spawn_worker(agent, fn ->
         WorkflowRelay.run(
           agent,
           runtime,

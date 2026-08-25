@@ -53,7 +53,7 @@ defmodule Ourocode.Terminal.TuiFrame do
       |> Map.delete(:pane_snapshot)
 
     sections = parse_sections(ShellRenderer.render_initial_frame(result))
-    activity = workspace_activity(state) || activity_lines(output)
+    activity = workspace_activity(state) || activity_lines(output, state)
 
     nav = sync_wonder_nav(state, result)
     result = sync_interview_ledger_pointer_state(result, state)
@@ -592,10 +592,9 @@ defmodule Ourocode.Terminal.TuiFrame do
 
   defp parse_sections(frame), do: Ourocode.Terminal.Renderer.parse_sections(frame)
 
-  defp activity_lines(output) do
-    {_input, captured} = StringIO.contents(output)
-
-    String.split(captured, "\n", trim: true)
+  defp activity_lines(output, state) do
+    captured = StringIO.flush(output)
+    TuiState.capture_activity(state, captured)
   end
 
   defp workspace_activity(state) do

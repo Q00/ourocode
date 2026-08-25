@@ -9,7 +9,7 @@ defmodule Ourocode.Terminal.KeySequence do
 
   alias Ourocode.Terminal.{KeyBracketedPaste, KeyEvent, KeyModifiers, KeySgrMouse}
 
-  @spec csi(binary()) :: {:ok, map(), binary()} | :incomplete | :ignore_one
+  @spec csi(binary()) :: {:ok, map(), binary()} | :incomplete | :overflow | :ignore_one
   def csi(rest) when is_binary(rest) do
     case rest do
       <<?<, tail::binary>> -> KeySgrMouse.parse(tail)

@@ -99,6 +99,7 @@ defmodule Ourocode.Terminal.KeyReader do
     case KeySequence.csi(rest) do
       {:ok, key, tail} -> decode(tail, [key | acc])
       :incomplete -> {Enum.reverse(acc), seq}
+      :overflow -> {Enum.reverse(acc), <<>>}
       :ignore_one -> decode(rest, acc)
     end
   end

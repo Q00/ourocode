@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "/fixture/project": {
+      "mcpServers": {
+        "ouroboros": {
+          "command": "python3",
+          "args": ["-m", "ouroboros", "mcp", "serve"]
+        },
+        "project-notes": {
+          "type": "http",
+          "url": "http://127.0.0.1:7778/mcp"
+        }
+      },
+      "trusted": true
+    },
+    "/fixture/other": {
+      "trusted": false
+    }
+  },
+  "version": 1
+}

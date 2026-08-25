@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "installation_policy": {
+    "workspace_authority": "workspace-code",
+    "forest_id": "execution-1"
+  },
+  "desktop_register": {
+    "envelope": {
+      "version": 1,
+      "id": 7001,
+      "op": "principal_binding_register_desktop",
+      "broker_generation": 873421,
+      "binding_id": "desktop-binding-1",
+      "uid": 501,
+      "authority_epoch": 5,
+      "workspace_authority": "workspace-code",
+      "forest_id": "execution-1",
+      "audit_identity_digest": "REREREREREREREREREREREREREREREREREREREREREQ",
+      "desktop_incarnation": "JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+      "expires_at": "2099-08-10T15:08:00Z"
+    },
+    "canonical_json": "{\"version\":1,\"id\":7001,\"op\":\"principal_binding_register_desktop\",\"broker_generation\":873421,\"binding_id\":\"desktop-binding-1\",\"uid\":501,\"authority_epoch\":5,\"workspace_authority\":\"workspace-code\",\"forest_id\":\"execution-1\",\"audit_identity_digest\":\"REREREREREREREREREREREREREREREREREREREREREQ\",\"desktop_incarnation\":\"JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk\",\"expires_at\":\"2099-08-10T15:08:00Z\"}"
+  },
+  "session_register": {
+    "envelope": {
+      "version": 1,
+      "id": 7002,
+      "op": "principal_binding_register_session",
+      "broker_generation": 873421,
+      "binding_id": "binding-a",
+      "uid": 501,
+      "authority_epoch": 3,
+      "workspace_authority": "workspace-code",
+      "forest_id": "execution-1",
+      "source_session_id": "session-a",
+      "source_execution_id": "execution-1",
+      "source_scope_id": "scope-a",
+      "source_attempt_id": "attempt-a1",
+      "owner_incarnation": "owner-a",
+      "expires_at": "2099-08-10T15:08:00Z",
+      "cause_signal_id": null,
+      "cause_hop_count": null
+    },
+    "canonical_json": "{\"version\":1,\"id\":7002,\"op\":\"principal_binding_register_session\",\"broker_generation\":873421,\"binding_id\":\"binding-a\",\"uid\":501,\"authority_epoch\":3,\"workspace_authority\":\"workspace-code\",\"forest_id\":\"execution-1\",\"source_session_id\":\"session-a\",\"source_execution_id\":\"execution-1\",\"source_scope_id\":\"scope-a\",\"source_attempt_id\":\"attempt-a1\",\"owner_incarnation\":\"owner-a\",\"expires_at\":\"2099-08-10T15:08:00Z\",\"cause_signal_id\":null,\"cause_hop_count\":null}"
+  },
+  "revoke": {
+    "envelope": {
+      "version": 1,
+      "id": 7003,
+      "op": "principal_binding_revoke",
+      "broker_generation": 873421,
+      "binding_id": "binding-a",
+      "authority_epoch": 3
+    },
+    "canonical_json": "{\"version\":1,\"id\":7003,\"op\":\"principal_binding_revoke\",\"broker_generation\":873421,\"binding_id\":\"binding-a\",\"authority_epoch\":3}"
+  },
+  "acks": {
+    "desktop_registered": {
+      "version": 1,
+      "broker_generation": 873421,
+      "id": 7001,
+      "result": "principal_binding_registered",
+      "binding_id": "desktop-binding-1",
+      "authority_epoch": 5,
+      "changed": true
+    },
+    "session_registered": {
+      "version": 1,
+      "broker_generation": 873421,
+      "id": 7002,
+      "result": "principal_binding_registered",
+      "binding_id": "binding-a",
+      "authority_epoch": 3,
+      "changed": true
+    },
+    "session_revoked": {
+      "version": 1,
+      "broker_generation": 873421,
+      "id": 7003,
+      "result": "principal_binding_revoked",
+      "binding_id": "binding-a",
+      "authority_epoch": 3,
+      "changed": true
+    }
+  }
+}

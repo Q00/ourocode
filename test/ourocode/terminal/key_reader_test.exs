@@ -118,6 +118,16 @@ defmodule Ourocode.Terminal.KeyReaderTest do
     assert event.char == "partial"
   end
 
+  test "drops oversized incomplete bracketed paste and resumes ordinary input" do
+    {events, rest} = KeyReader.decode("\e[200~" <> String.duplicate("x", 4_194_305))
+    assert events == []
+    assert rest == ""
+
+    {[event], ""} = KeyReader.decode("z")
+    assert event.key == :char
+    assert event.char == "z"
+  end
+
   test "decodes a multi-byte UTF-8 grapheme and buffers an incomplete tail" do
     assert {[{:char, "界"}], ""} = keys("界")
 

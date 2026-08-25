@@ -9,6 +9,8 @@ defmodule Ourocode.Terminal.PromptStore do
   @history_file "prompt_history.jsonl"
   @draft_file "prompt_draft.txt"
   @limit 50
+  @stored_entry_limit 1_000
+  @max_history_bytes 262_144
 
   @spec load_history(keyword()) :: [String.t()]
   def load_history(opts \\ []) do
@@ -42,6 +44,7 @@ defmodule Ourocode.Terminal.PromptStore do
 
       encoded = "v1\t" <> Base.encode64(line)
       _ = File.write(path, encoded <> "\n", [:append])
+      compact_history(path)
 
       :ok
     end
@@ -92,19 +95,58 @@ defmodule Ourocode.Terminal.PromptStore do
   end
 
   defp read_history_entries(opts) do
-    opts
-    |> history_path()
-    |> File.read()
-    |> case do
-      {:ok, body} ->
-        body
-        |> String.split("\n", trim: true)
-        |> Enum.reverse()
-        |> Enum.flat_map(&decode_history_line/1)
+    path = history_path(opts)
+
+    case File.stat(path) do
+      {:ok, %{size: size}} when size > 0 ->
+        offset = max(size - @max_history_bytes, 0)
+
+        case :file.open(String.to_charlist(path), [:read, :binary]) do
+          {:ok, file} ->
+            result =
+              case :file.pread(file, offset, size - offset) do
+                {:ok, body} -> decode_history_tail(body, offset > 0)
+                _error -> []
+              end
+
+            :file.close(file)
+            result
+
+          _error ->
+            []
+        end
 
       _error ->
         []
     end
+  end
+
+  defp decode_history_tail(body, truncated?) do
+    lines = String.split(body, "\n", trim: true)
+    lines = if truncated?, do: Enum.drop(lines, 1), else: lines
+
+    lines
+    |> Enum.reverse()
+    |> Enum.flat_map(&decode_history_line/1)
+    |> Enum.take(@stored_entry_limit)
+  end
+
+  defp compact_history(path) do
+    case File.stat(path) do
+      {:ok, %{size: size}} when size > @max_history_bytes ->
+        body =
+          path
+          |> then(&read_history_entries(state_dir: Path.dirname(&1)))
+          |> Enum.reverse()
+          |> Enum.map_join("", fn line -> "v1\t" <> Base.encode64(line) <> "\n" end)
+
+        File.write(path, body)
+
+      _other ->
+        :ok
+    end
+  rescue
+    _exception -> :ok
   end
 
   defp command_key(line) do

@@ -153,7 +153,10 @@ defmodule Ourocode.Terminal.TtyDriverTest do
     if match?({:win32, _}, :os.type()) do
       assert windows_path_key(left) == windows_path_key(right)
     else
-      assert left == right
+      # macOS reports /var through System.tmp_dir!/0 but canonicalizes the
+      # process cwd to /private/var after File.cd!/1. Compare file identity so
+      # the test verifies helper precedence instead of a filesystem alias.
+      assert File.stat!(left) == File.stat!(right)
     end
   end
 

@@ -53,10 +53,134 @@ defmodule Ourocode.Runtime.LoopBindings do
   """
   @spec stop(pid()) :: :ok
   def stop(agent) when is_pid(agent) do
-    handle = Agent.get(agent, &Map.get(&1, :mcp_daemon))
+    {handle, workers, waiter} =
+      Agent.get(agent, fn state ->
+        {
+          Map.get(state, :mcp_daemon),
+          Map.get(state, :workers, MapSet.new()),
+          Map.get(state, :interview_waiter)
+        }
+      end)
+
+    worker_refs = Map.new(workers, &{Process.monitor(&1), &1})
+    Enum.each(workers, &send(&1, {:cancel_worker, :loop_bindings_stopped}))
+
+    if is_pid(waiter) and Process.alive?(waiter),
+      do: Process.exit(waiter, :shutdown)
+
+    await_worker_guards(worker_refs, System.monotonic_time(:millisecond) + 1_000)
     McpDaemon.stop(handle)
     Agent.stop(agent)
     :ok
+  rescue
+    _exception -> :ok
+  end
+
+  @doc false
+  @spec spawn_worker(pid(), (-> term())) :: pid()
+  def spawn_worker(agent, fun) when is_pid(agent) and is_function(fun, 0) do
+    guard =
+      spawn(fn ->
+        Process.flag(:trap_exit, true)
+        owner_ref = Process.monitor(agent)
+        guard = self()
+
+        worker =
+          spawn_link(fn ->
+            Process.put(:loop_bindings_guard, guard)
+            result = fun.()
+            send(guard, {:worker_finished, self(), result})
+          end)
+
+        await_worker(worker, owner_ref, agent, nil)
+
+        Process.demonitor(owner_ref, [:flush])
+        unregister_worker(agent, self())
+      end)
+
+    Agent.update(agent, fn state ->
+      if Process.alive?(guard) do
+        Map.update(state, :workers, MapSet.new([guard]), &MapSet.put(&1, guard))
+      else
+        state
+      end
+    end)
+
+    guard
+  end
+
+  @doc false
+  @spec register_worker_cleanup((-> term())) :: :ok
+  def register_worker_cleanup(cleanup) when is_function(cleanup, 0) do
+    case Process.get(:loop_bindings_guard) do
+      guard when is_pid(guard) -> send(guard, {:register_cleanup, cleanup})
+      _none -> :ok
+    end
+
+    :ok
+  end
+
+  defp await_worker(worker, owner_ref, agent, cleanup) do
+    receive do
+      {:register_cleanup, next_cleanup} when is_function(next_cleanup, 0) ->
+        await_worker(worker, owner_ref, agent, next_cleanup)
+
+      {:worker_finished, ^worker, _result} ->
+        run_worker_cleanup(cleanup)
+
+      {:EXIT, ^worker, _reason} ->
+        run_worker_cleanup(cleanup)
+
+      {:DOWN, ^owner_ref, :process, ^agent, _reason} ->
+        stop_worker(worker)
+        run_worker_cleanup(cleanup)
+
+      {:cancel_worker, _reason} ->
+        stop_worker(worker)
+        run_worker_cleanup(cleanup)
+    end
+  end
+
+  defp stop_worker(worker) do
+    if Process.alive?(worker), do: Process.exit(worker, :shutdown)
+
+    receive do
+      {:EXIT, ^worker, _reason} -> :ok
+    after
+      1_000 -> :ok
+    end
+  end
+
+  defp await_worker_guards(worker_refs, _deadline) when map_size(worker_refs) == 0, do: :ok
+
+  defp await_worker_guards(worker_refs, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:DOWN, ref, :process, _pid, _reason} when is_map_key(worker_refs, ref) ->
+        await_worker_guards(Map.delete(worker_refs, ref), deadline)
+    after
+      remaining ->
+        Enum.each(Map.keys(worker_refs), &Process.demonitor(&1, [:flush]))
+        :ok
+    end
+  end
+
+  defp run_worker_cleanup(nil), do: :ok
+
+  defp run_worker_cleanup(cleanup) do
+    cleanup.()
+    :ok
+  rescue
+    _exception -> :ok
+  end
+
+  defp unregister_worker(agent, worker) do
+    if Process.alive?(agent) do
+      Agent.update(agent, fn state ->
+        Map.update(state, :workers, MapSet.new(), &MapSet.delete(&1, worker))
+      end)
+    end
   rescue
     _exception -> :ok
   end

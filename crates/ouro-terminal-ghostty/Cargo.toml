@@ -1,0 +1,14 @@
+[package]
+name = "ouro-terminal-ghostty"
+version = "0.0.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+# Exposes the synchronous FULL scan only to explicit test/benchmark builds.
+benchmark-full-compression = []

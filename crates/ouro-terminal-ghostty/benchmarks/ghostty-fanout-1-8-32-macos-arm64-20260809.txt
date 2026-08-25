@@ -1,0 +1,116 @@
+Ourocode Ghostty fanout memory evidence
+=======================================
+
+Date: 2026-08-09 (Asia/Seoul)
+Host: macOS 26.5.1 (25F80), arm64
+Rust: rustc/cargo 1.94.0
+Zig: 0.16.0
+Ghostty commit: 136f436a3bbb14fd48d18e927a83fc6585d5a63c
+Exact patch SHA-256: 58596254d225ae5cccd6abc402b494c4648ce58e9dc42c8d23e055f1381aabd3
+Exact prefix: /private/tmp/ouro-memory-install-macos13
+Pre-canonical raw libghostty-vt.a SHA-256: cb657b7e9177838a3d00913914e39d322f8bc5a7b63170bcd21059745dc1449a
+fanout_memory SHA-256: f68076d6513cfcf6438f286f40f43b1e9b3031607774bf59e73003c11e1be978
+
+Build and measurement commands
+------------------------------
+
+PATH=/private/tmp/zig-aarch64-macos-0.16.0:$PATH \
+  OUROCODE_MACOS_MIN_VERSION=13.0 \
+  spikes/libghostty-gate0/build-upstream.sh \
+  /private/tmp/ouro-ghostty-136f436 \
+  /private/tmp/ouro-memory-install-macos13
+
+GHOSTTY_VT_PREFIX=/private/tmp/ouro-memory-install-macos13 \
+  MACOSX_DEPLOYMENT_TARGET=13.0 \
+  cargo build -p ouro-terminal-ghostty --release --example fanout_memory
+
+OURO_BENCH_COMPRESSION=incremental \
+  OURO_BENCH_HOLD_SECONDS=3 \
+  target/release/examples/fanout_memory \
+  SESSIONS LINES 8388608 1073741824 16384
+
+The workload is exactly 64 input bytes per logical line. Each steady physical
+sample used `footprint -p PID` after incremental compression converged. Page
+counts are the canonical snapshot's PAGE-record count; SCREEN and HISTORY
+partition the same native PageList nodes without duplicating them.
+
+Steady-state matrix after incremental compression
+-------------------------------------------------
+
+sessions lines   PageBudget      engine-live  projection   PAGE  snapshot    phys_footprint
+                 reserved bytes  bytes        bytes        count bytes
+       1     0       2,260,992        17,396           0       1       1,210       1,696 KiB
+       1  1000       2,260,992        43,038      53,999       3     390,593       2,656 KiB
+       1 10000      10,502,144       271,898     411,695      20   2,970,355       6,960 KiB
+       8     0      18,087,936       139,168           0       8       9,680       3,136 KiB
+       8  1000      18,087,936       344,745     431,992      24   3,124,744       5,248 KiB
+       8 10000      84,017,152     2,178,141   3,293,560     160  23,762,840          17 MiB
+      32     0      72,351,744       556,672           0      32      38,720       7,472 KiB
+      32  1000      72,351,744     1,379,693   1,727,968      96  12,498,976          14 MiB
+      32 10000     336,068,608     8,723,530  13,174,240     640  95,051,360          50 MiB
+
+The 32 x 10,000 case retained 243,968 line markers from 20,480,000 input
+bytes. Incremental compression converged in 704 bounded steps in 45-51 ms.
+Before compression, requested live was 854,848 bytes. After compression it was
+8,723,530 bytes because the exact LZ4 payloads are allocator-mediated. The
+requested-allocation peak was 17,033,920 bytes. PageBudget reserved and peak
+were both 336,068,608 bytes before and after compression, with zero denials and
+zero child failures under the 1 GiB diagnostic admission limit.
+
+32 x 10,000 VM/physical split
+-----------------------------
+
+The steady `vmmap -summary` sample reported:
+
+- Physical footprint: 50.1 MiB
+- Physical footprint peak: 279.5 MiB
+- Memory Tag 240 virtual size: 320.5 MiB
+- Memory Tag 240 resident size: 264.5 MiB
+- Memory Tag 240 dirty size: 14.5 MiB
+- Memory Tag 240 regions: 128
+- MALLOC_SMALL dirty: 13.3 MiB
+- MALLOC_SMALL (empty) dirty: 17.8 MiB
+
+For one 10,000-line terminal, `vmmap -w` showed four Tag-240 PagePool arena
+growth regions: 640 KiB, 1,568 KiB, 2,976 KiB, and 5,072 KiB. Their sum is the
+reported 10,502,144-byte PageBudget reservation; only 464 KiB was dirty after
+compression. The arena regions are allocator high-water mappings, not the
+20 logical PageList pages and not compressed payload storage.
+
+Interpretation and gate
+-----------------------
+
+`PageBudget.reserved_bytes` is deliberately a virtual-mapping admission
+counter. The exact pin keeps every compressed page's raw virtual mapping and
+uses `madvise(FREE_REUSABLE)` to discard its physical contents. This preserves
+the current infallible, allocation-free restore contract, so compression must
+not reduce `reserved_bytes`. Raw RSS and resident virtual bytes include clean,
+reclaimable mappings and are not the RFC physical-footprint gate.
+
+The product's 32 x 10,000 app-core target of at most 150 MiB is satisfied by
+the measured 50.1 MiB steady physical footprint. A different requirement that
+`PageBudget.reserved_bytes` itself be at most 150 MiB is incompatible with the
+retained-mapping contract: using a 157,286,400-byte PageBudget failed closed at
+session 14, feed chunk 17, with 152,338,432 bytes reserved, 495 denials, and no
+child failure. Incremental compression cannot change that admission result.
+
+Meeting a 150 MiB raw-mapping requirement without deleting scrollback needs an
+upstream architecture change: release compressed raw mappings, make every
+restore path fallible, and propagate allocation failure through callers; or
+add a bounded shared restore cache with explicit eviction and pointer-lifetime
+rules. Redefining the existing reserved counter as physical dirty memory would
+hide the retained VAS and weaken its hard admission contract, so this change
+was not made.
+
+Correctness, reclamation, CPU, and thread checks
+-----------------------------------------------
+
+- C/C++ ABI v6 conformance: PASS.
+- Rust default suite: 21/21 PASS.
+- Rust benchmark-full-compression suite: 22/22 PASS.
+- Canonical page-count snapshots completed before compression; compression
+  preserved content in the existing byte-identity conformance suite.
+- After dropping every terminal, shared PageBudget reserved bytes were exactly
+  zero in all nine matrix cases.
+- A 32 x 10,000 hold sampled by `top -l 3 -s 1` was 0.0% CPU in all three
+  samples, sleeping, with one process thread. Session count created no thread.

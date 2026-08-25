@@ -1,0 +1,20 @@
+goal: "Prove that a human can steer one exact live Ouroboros attempt from Ourocode"
+constraints:
+  - "Work only inside the supplied temporary project directory."
+  - "Do not modify files or make network requests."
+  - "Keep the first provider turn open long enough for a human to select the exact attempt and queue one message."
+acceptance_criteria:
+  - "As worker A, run the harmless bounded command `sleep 90`, then report `INITIAL_TURN_COMPLETE`. If a Synapse follow-up arrives after that turn, obey it and include its requested exact marker in the reply."
+ontology_schema:
+  name: "HumanSteeringApplicationProofQA"
+  description: "One live worker with a deterministic provider boundary for desktop steering verification"
+  fields:
+    - name: "worker"
+      field_type: "entity"
+      description: "The exact attempt receiving the human's next-turn instruction"
+    - name: "application_proof"
+      field_type: "string"
+      description: "The exact marker returned only after the queued instruction is applied"
+metadata:
+  seed_id: "ourocode_human_steering_application_proof_20260817"
+  ambiguity_score: 0.0

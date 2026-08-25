@@ -1,0 +1,16 @@
+goal: "Keep one exact Ouroboros attempt live while a human steers it"
+constraints:
+  - "Work only inside the supplied project directory."
+  - "Do not make network requests."
+acceptance_criteria:
+  - "As worker A, run a harmless bounded shell command that sleeps for 240 seconds, then report that it completed. Do not modify files."
+ontology_schema:
+  name: "HumanSteeringLongQA"
+  description: "One live worker for desktop multiplexer input verification"
+  fields:
+    - name: "worker"
+      field_type: "entity"
+      description: "The exact attempt receiving human steering input"
+metadata:
+  seed_id: "ourocode_human_steering_long_20260817"
+  ambiguity_score: 0.0

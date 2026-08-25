@@ -7,6 +7,7 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatch do
   alias Ourocode.Terminal.CommandInput
   alias Ourocode.Terminal.EventLoopFocus
   alias Ourocode.Terminal.EventLoopJournal
+  alias Ourocode.Terminal.EventLoopState
 
   @spec submit(map(), map()) :: {:ok, map()} | {:error, term()}
   def submit(command_event, state) when is_map(command_event) and is_map(state) do
@@ -76,7 +77,7 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatch do
     %{
       state
       | iterations: state.iterations + 1,
-        command_events: [command_event | state.command_events]
+        command_events: EventLoopState.remember(state.command_events, command_event)
     }
   end
 
@@ -90,8 +91,8 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatch do
      %{
        state
        | iterations: state.iterations + 1,
-         command_events: [command_event | state.command_events],
-         command_errors: [command_error | state.command_errors]
+         command_events: EventLoopState.remember(state.command_events, command_event),
+         command_errors: EventLoopState.remember(state.command_errors, command_error)
      }}
   end
 

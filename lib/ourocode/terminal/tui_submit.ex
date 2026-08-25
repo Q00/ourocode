@@ -36,6 +36,7 @@ defmodule Ourocode.Terminal.TuiSubmit do
 
   def handle("/clear", result, output, state, cols, rows, callbacks) do
     clear_captured_output(output)
+    TuiState.clear_activity(state)
     TuiState.put_workspace(state, nil)
     TuiState.clear_conversation(state)
     ConversationStore.clear(ConversationStore.project_dir(result))

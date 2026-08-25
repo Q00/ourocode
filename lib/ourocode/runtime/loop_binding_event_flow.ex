@@ -10,10 +10,29 @@ defmodule Ourocode.Runtime.LoopBindingEventFlow do
   @spec enqueue(pid(), map()) :: :ok
   def enqueue(agent, event) when is_pid(agent) and is_map(event) do
     Agent.update(agent, fn state ->
+      inbox =
+        bounded_enqueue(
+          Map.get(state, :inbox, :queue.new()),
+          event,
+          Map.get(state, :inbox_limit, 2_000)
+        )
+
       state
-      |> Map.update!(:inbox, &:queue.in(event, &1))
+      |> Map.put(:inbox, inbox)
       |> fold_event(event)
     end)
+  end
+
+  defp bounded_enqueue(queue, event, limit) do
+    queue = if :queue.len(queue) >= limit, do: drop_oldest(queue), else: queue
+    :queue.in(event, queue)
+  end
+
+  defp drop_oldest(queue) do
+    case :queue.out(queue) do
+      {{:value, _event}, rest} -> rest
+      {:empty, queue} -> queue
+    end
   end
 
   @spec poll_fun(pid()) :: (map() -> {:ok, map()} | {:none, map()})

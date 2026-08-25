@@ -1,0 +1,12 @@
+[package]
+name = "ouro-session"
+version = "0.1.0"
+edition = "2021"
+description = "Bounded session-forest projection for Ourocode Desktop"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+

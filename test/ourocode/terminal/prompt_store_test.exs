@@ -47,4 +47,19 @@ defmodule Ourocode.Terminal.PromptStoreTest do
              "/status" => 1
            }
   end
+
+  test "compacts prompt history to a bounded file" do
+    dir = tmp_dir()
+
+    Enum.each(1..2_000, fn index ->
+      PromptStore.append_history("/status #{index} " <> String.duplicate("x", 200),
+        state_dir: dir
+      )
+    end)
+
+    path = Path.join(dir, "prompt_history.jsonl")
+    assert File.stat!(path).size <= 262_144
+    assert length(PromptStore.load_history(state_dir: dir)) == 50
+    assert PromptStore.command_usage(state_dir: dir)["/status"] <= 1_000
+  end
 end

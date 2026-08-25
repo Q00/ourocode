@@ -1,0 +1,40 @@
+{
+  "codex": {
+    "serverName": "ouroboros",
+    "executable": "/opt/homebrew/bin/uvx",
+    "arguments": [
+      "--isolated",
+      "--from",
+      "ouroboros-ai[mcp]==0.51.6",
+      "ouroboros",
+      "mcp",
+      "serve"
+    ],
+    "rollbackSnapshotID": "codex.ouroboros.before-shared-v1",
+    "configGeneration": 41
+  },
+  "claudeUser": {
+    "serverName": "ouroboros",
+    "scope": "user",
+    "executable": "ouroboros",
+    "arguments": ["mcp", "serve", "--transport", "stdio"],
+    "rollbackSnapshotID": "claude.user.ouroboros.before-shared-v1",
+    "configGeneration": 9
+  },
+  "claudeLocal": {
+    "serverName": "ouroboros",
+    "scope": "local",
+    "executable": "python3",
+    "arguments": ["-m", "ouroboros", "mcp", "serve"],
+    "rollbackSnapshotID": "claude.local.ouroboros.before-shared-v1",
+    "configGeneration": 3
+  },
+  "claudePlugin": {
+    "serverName": "ouroboros:session-fabric",
+    "namespace": "ouroboros",
+    "executable": "ouroboros",
+    "arguments": ["mcp", "serve"],
+    "rollbackSnapshotID": "claude.plugin.ouroboros.before-shared-v1",
+    "configGeneration": 12
+  }
+}

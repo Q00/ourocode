@@ -6,6 +6,7 @@ defmodule Ourocode.Terminal.EventLoopFocus do
   alias Ourocode.Runtime.FocusState
   alias Ourocode.Terminal.EventLoopJournal
   alias Ourocode.Terminal.FocusNavigation
+  alias Ourocode.Terminal.EventLoopState
 
   @spec handle_keyboard(map(), map()) ::
           {:ok, map()} | {:error, {:focus_event_journal_append_failed, term()}}
@@ -61,7 +62,8 @@ defmodule Ourocode.Terminal.EventLoopFocus do
            %{
              state
              | iterations: state.iterations + 1,
-               recoverable_errors: [keyboard_error | state.recoverable_errors]
+               recoverable_errors:
+                 EventLoopState.remember(state.recoverable_errors, keyboard_error)
            }}
       end
     end
@@ -83,7 +85,7 @@ defmodule Ourocode.Terminal.EventLoopFocus do
            state
            | iterations: state.iterations + 1,
              focus_state: focus_state,
-             focus_events: [focus_event | state.focus_events]
+             focus_events: EventLoopState.remember(state.focus_events, focus_event)
          }}
 
       {:error, reason} ->
@@ -118,7 +120,7 @@ defmodule Ourocode.Terminal.EventLoopFocus do
          %{
            state
            | focus_state: focus_state,
-             focus_events: [focus_event | state.focus_events]
+             focus_events: EventLoopState.remember(state.focus_events, focus_event)
          }}
 
       {:error, reason} ->

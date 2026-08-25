@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Expose one user-scoped CUA MCP service through stdio clients.
+
+When Ourocode's shared endpoint manifest exists, every Claude/Codex/Ouroboros
+session reuses that authenticated loopback service. The legacy child-process
+path remains only as an installation/startup fallback.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import threading
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+def relay(stream: object, output: object) -> None:
+    for line in stream:  # type: ignore[union-attr]
+        output.write(line)  # type: ignore[union-attr]
+        output.flush()  # type: ignore[union-attr]
+
+
+def shared_endpoint() -> tuple[str, str] | None:
+    manifest = Path.home() / "Library" / "Application Support" / "Ourocode" / "cua-mcp-endpoint.json"
+    try:
+        values = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    endpoint = values.get("endpoint")
+    authorization = values.get("authorization")
+    if endpoint != "http://127.0.0.1:9877/mcp":
+        return None
+    if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ")
+    if len(token) != 64 or any(ch not in "0123456789abcdef" for ch in token):
+        return None
+    return endpoint, authorization
+
+
+def decode_http_body(body: bytes) -> str | None:
+    text = body.decode("utf-8", errors="strict")
+    if text.lstrip().startswith("{"):
+        return text.strip()
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            payload = line[5:].strip()
+            json.loads(payload)
+            return payload
+    return None
+
+
+def shared_main(endpoint: str, authorization: str) -> int:
+    for line in sys.stdin:
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        request = Request(
+            endpoint,
+            data=json.dumps(message, separators=(",", ":")).encode("utf-8"),
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "MCP-Protocol-Version": "2025-06-18",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=35) as response:
+                payload = decode_http_body(response.read(1_048_577))
+        except (HTTPError, URLError, TimeoutError, UnicodeError, json.JSONDecodeError) as error:
+            if "id" not in message:
+                continue
+            payload = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "error": {"code": -32000, "message": f"Shared CUA unavailable: {error}"},
+                },
+                separators=(",", ":"),
+            )
+        if payload is not None and "id" in message:
+            sys.stdout.write(payload + "\n")
+            sys.stdout.flush()
+    return 0
+
+
+def child_main(command: list[str]) -> int:
+    child = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        env=os.environ.copy(),
+    )
+    if child.stdin is None or child.stdout is None or child.stderr is None:
+        return 70
+    threading.Thread(target=relay, args=(child.stdout, sys.stdout), daemon=True).start()
+    threading.Thread(target=relay, args=(child.stderr, sys.stderr), daemon=True).start()
+    for line in sys.stdin:
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("method") == "server/discover":
+            response = {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "error": {"code": -32601, "message": "Method not found"},
+            }
+            sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+            sys.stdout.flush()
+            continue
+        child.stdin.write(line)
+        child.stdin.flush()
+    child.stdin.close()
+    return child.wait()
+
+
+def main() -> int:
+    if endpoint := shared_endpoint():
+        return shared_main(*endpoint)
+    command = [arg for arg in sys.argv[1:] if arg != "--shared"] or ["cua-rs"]
+    return child_main(command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

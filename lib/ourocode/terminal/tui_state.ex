@@ -17,6 +17,50 @@ defmodule Ourocode.Terminal.TuiState do
 
   @double_press_ms 800
   @history_limit 50
+  @activity_line_limit 500
+  @activity_byte_limit 262_144
+  @decoder_leftover_limit 1_048_576
+
+  @doc false
+  @spec decoder_leftover_limit() :: pos_integer()
+  def decoder_leftover_limit, do: @decoder_leftover_limit
+
+  @spec capture_activity(pid(), binary()) :: [String.t()]
+  def capture_activity(state, captured) when is_binary(captured) do
+    Agent.get_and_update(state, fn current ->
+      captured = bounded_binary_tail(captured, @activity_byte_limit)
+      appended = Map.get(current, :activity_lines, []) ++ String.split(captured, "\n", trim: true)
+      lines = bound_activity(appended)
+      {lines, Map.put(current, :activity_lines, lines)}
+    end)
+  end
+
+  @spec clear_activity(pid()) :: :ok
+  def clear_activity(state), do: Agent.update(state, &Map.put(&1, :activity_lines, []))
+
+  defp bound_activity(lines) do
+    lines
+    |> Enum.take(-@activity_line_limit)
+    |> Enum.reverse()
+    |> Enum.reduce_while({[], 0}, fn line, {kept, bytes} ->
+      line_bytes = byte_size(line) + 1
+
+      if bytes + line_bytes <= @activity_byte_limit do
+        {:cont, {[line | kept], bytes + line_bytes}}
+      else
+        {:halt, {kept, bytes}}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp bounded_binary_tail(binary, limit) when byte_size(binary) <= limit, do: binary
+
+  defp bounded_binary_tail(binary, limit) do
+    binary
+    |> binary_part(byte_size(binary) - limit, limit)
+    |> String.replace_invalid("")
+  end
 
   @spec start_link() :: pid()
   def start_link do

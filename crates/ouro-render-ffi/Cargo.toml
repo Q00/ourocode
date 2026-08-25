@@ -1,0 +1,12 @@
+[package]
+name = "ouro-render-ffi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+ouro-session = { path = "../ouro-session" }
+ouro-terminal-ghostty = { path = "../ouro-terminal-ghostty" }

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "notes": {
+      "type": "http",
+      "url": "http://127.0.0.1:7777/mcp"
+    },
+    "ouroboros": {
+      "type": "stdio",
+      "command": "/opt/tools/ouroboros",
+      "args": ["mcp", "serve"],
+      "env": {
+        "FIXTURE_SECRET": "DO_NOT_LEAK_IN_PREVIEW"
+      }
+    }
+  },
+  "theme": "dark"
+}

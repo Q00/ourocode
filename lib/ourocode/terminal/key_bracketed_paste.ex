@@ -8,15 +8,20 @@ defmodule Ourocode.Terminal.KeyBracketedPaste do
   """
 
   alias Ourocode.Terminal.KeyEvent
+  @max_payload_bytes 4_194_304
 
   @closing_marker "\e[201~"
 
-  @type result :: {:ok, map(), binary()} | :incomplete
+  @type result :: {:ok, map(), binary()} | :incomplete | :overflow
 
   @spec parse(binary()) :: result()
   def parse(tail) when is_binary(tail) do
-    case :binary.match(tail, @closing_marker) do
-      {idx, _len} ->
+    cond do
+      byte_size(tail) > @max_payload_bytes ->
+        :overflow
+
+      match?({_, _}, :binary.match(tail, @closing_marker)) ->
+        {idx, _len} = :binary.match(tail, @closing_marker)
         text = binary_part(tail, 0, idx)
 
         rest =
@@ -28,7 +33,7 @@ defmodule Ourocode.Terminal.KeyBracketedPaste do
 
         {:ok, KeyEvent.paste(text), rest}
 
-      :nomatch ->
+      true ->
         :incomplete
     end
   end

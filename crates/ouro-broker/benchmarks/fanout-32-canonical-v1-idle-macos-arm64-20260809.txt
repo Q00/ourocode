@@ -1,0 +1,29 @@
+fanout_32_canonical_viewport_v1_idle_gate
+utc=2026-08-08T22:40:05Z
+os=Darwin 25.5.0 arm64
+protocol_version=3
+binary=/Users/jaegyu.lee/Project/ourocode/target/release/ouro-broker
+broker_pid=83875
+broker_generation=3154563557444838429
+terminal_count=32
+all_running=true
+minimum_cursor=60
+maximum_cursor=61
+idle_settle_seconds=10
+threads=1
+rss_kib=24336
+cpu_percent=0.0
+phys_footprint=23 MB
+phys_footprint_peak=23 MB
+ui_less_terminal_count=32
+ui_less_all_running=true
+
+Workload: 32 broker-owned `/bin/sh` PTYs, each producing 640 KiB before
+remaining alive without a UI client. Measurement command:
+
+    ./crates/ouro-broker/scripts/fanout-32.sh
+
+The script builds the optimized broker from the current source, waits ten
+seconds after the output burst before sampling idle CPU, verifies one reactor
+thread, reconnects a client, confirms all 32 PTYs remain alive, and then
+terminates every terminal through the broker protocol.

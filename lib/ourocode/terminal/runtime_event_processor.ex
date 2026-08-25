@@ -2,7 +2,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
   @moduledoc false
 
   alias Ourocode.Journal
-  alias Ourocode.Terminal.{PluginStatus, RuntimeEventFlow, WorkflowLaneLifecycle}
+  alias Ourocode.Terminal.{EventLoopState, PluginStatus, RuntimeEventFlow, WorkflowLaneLifecycle}
 
   @spec drain(map()) :: {:ok, map()} | {:error, term()}
   def drain(state) when is_map(state) do
@@ -38,7 +38,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
          {:ok, state} <- apply_workflow_lifecycle_event(runtime_event, state),
          {:ok, state} <- dispatch_runtime_event(runtime_event, state) do
       state =
-        %{state | runtime_events: [runtime_event | state.runtime_events]}
+        %{state | runtime_events: EventLoopState.remember(state.runtime_events, runtime_event)}
         |> maybe_record_recoverable_runtime_event(runtime_event)
 
       {:ok, state}
@@ -52,7 +52,8 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
           )
 
         with {:ok, state} <- record_recoverable_error(recoverable_error, state) do
-          {:ok, %{state | runtime_events: [runtime_event | state.runtime_events]}}
+          {:ok,
+           %{state | runtime_events: EventLoopState.remember(state.runtime_events, runtime_event)}}
         end
 
       {:error, reason} ->
@@ -90,7 +91,10 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
           Map.get(runtime_event, :source, :runtime)
         )
 
-      %{state | recoverable_errors: [recoverable_error | state.recoverable_errors]}
+      %{
+        state
+        | recoverable_errors: EventLoopState.remember(state.recoverable_errors, recoverable_error)
+      }
     else
       state
     end
@@ -184,8 +188,16 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
 
   defp record_recoverable_error(recoverable_error, state) do
     case maybe_append_input_event(state.journal_path, recoverable_error) do
-      :ok -> {:ok, %{state | recoverable_errors: [recoverable_error | state.recoverable_errors]}}
-      {:error, reason} -> {:error, {:recoverable_error_journal_append_failed, reason}}
+      :ok ->
+        {:ok,
+         %{
+           state
+           | recoverable_errors:
+               EventLoopState.remember(state.recoverable_errors, recoverable_error)
+         }}
+
+      {:error, reason} ->
+        {:error, {:recoverable_error_journal_append_failed, reason}}
     end
   end
 

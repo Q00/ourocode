@@ -6,6 +6,8 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.Connection do
   alias Ourocode.Json
   alias Ourocode.MCP.Transport.Http
   alias Ourocode.MCP.Transport.StreamableHTTP.Response
+  @max_response_header_bytes 65_536
+  @max_response_body_bytes 8_388_608
 
   @spec connect(URI.t(), pos_integer()) :: {:ok, port()} | {:error, term()}
   def connect(%URI{} = uri, timeout) when is_integer(timeout) and timeout > 0 do
@@ -78,16 +80,29 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.Connection do
           {:ok, integer(), [{String.t(), String.t()}], binary()} | {:error, term()}
   def recv_response_headers(socket, acc, timeout)
       when is_port(socket) and is_binary(acc) and is_integer(timeout) do
-    case String.split(acc, "\r\n\r\n", parts: 2) do
-      [headers_blob, body_rest] when body_rest != nil and headers_blob != acc ->
-        with {:ok, status, headers} <- Http.parse_response_headers(headers_blob) do
-          {:ok, status, headers, body_rest}
-        end
+    cond do
+      byte_size(acc) > @max_response_header_bytes ->
+        {:error, {:response_headers_too_large, @max_response_header_bytes}}
 
-      _partial ->
-        case :gen_tcp.recv(socket, 0, timeout) do
-          {:ok, chunk} -> recv_response_headers(socket, acc <> chunk, timeout)
-          {:error, reason} -> {:error, {:response_header_recv_failed, reason}}
+      true ->
+        case String.split(acc, "\r\n\r\n", parts: 2) do
+          [headers_blob, body_rest] when body_rest != nil and headers_blob != acc ->
+            with {:ok, status, headers} <- Http.parse_response_headers(headers_blob),
+                 :ok <- validate_body_length(headers, body_rest) do
+              {:ok, status, headers, body_rest}
+            end
+
+          _partial ->
+            case :gen_tcp.recv(socket, 0, timeout) do
+              {:ok, chunk} when byte_size(acc) + byte_size(chunk) <= @max_response_header_bytes ->
+                recv_response_headers(socket, acc <> chunk, timeout)
+
+              {:ok, _chunk} ->
+                {:error, {:response_headers_too_large, @max_response_header_bytes}}
+
+              {:error, reason} ->
+                {:error, {:response_header_recv_failed, reason}}
+            end
         end
     end
   end
@@ -97,8 +112,17 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.Connection do
   def recv_remaining_body(socket, headers, body_rest, timeout)
       when is_port(socket) and is_list(headers) and is_binary(body_rest) do
     case Response.content_length(headers) do
-      nil -> recv_until_closed(socket, body_rest, timeout)
-      length -> recv_until_length(socket, body_rest, length, timeout)
+      length when is_integer(length) and length > @max_response_body_bytes ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      nil when byte_size(body_rest) > @max_response_body_bytes ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      nil ->
+        recv_until_closed(socket, body_rest, timeout)
+
+      length ->
+        recv_until_length(socket, body_rest, length, timeout)
     end
   end
 
@@ -108,16 +132,43 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.Connection do
 
   defp recv_until_length(socket, body, length, timeout) do
     case :gen_tcp.recv(socket, 0, timeout) do
-      {:ok, chunk} -> recv_until_length(socket, body <> chunk, length, timeout)
-      {:error, reason} -> {:error, {:body_recv_failed, reason}}
+      {:ok, chunk} when byte_size(body) + byte_size(chunk) <= @max_response_body_bytes ->
+        recv_until_length(socket, body <> chunk, length, timeout)
+
+      {:ok, _chunk} ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      {:error, reason} ->
+        {:error, {:body_recv_failed, reason}}
     end
   end
 
   defp recv_until_closed(socket, body, timeout) do
     case :gen_tcp.recv(socket, 0, timeout) do
-      {:ok, chunk} -> recv_until_closed(socket, body <> chunk, timeout)
-      {:error, :closed} -> {:ok, body}
-      {:error, reason} -> {:error, {:body_recv_failed, reason}}
+      {:ok, chunk} when byte_size(body) + byte_size(chunk) <= @max_response_body_bytes ->
+        recv_until_closed(socket, body <> chunk, timeout)
+
+      {:ok, _chunk} ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      {:error, :closed} ->
+        {:ok, body}
+
+      {:error, reason} ->
+        {:error, {:body_recv_failed, reason}}
+    end
+  end
+
+  defp validate_body_length(headers, body_rest) do
+    case Response.content_length(headers) do
+      length when is_integer(length) and length > @max_response_body_bytes ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      nil when byte_size(body_rest) > @max_response_body_bytes ->
+        {:error, {:response_body_too_large, @max_response_body_bytes}}
+
+      _length ->
+        :ok
     end
   end
 end
