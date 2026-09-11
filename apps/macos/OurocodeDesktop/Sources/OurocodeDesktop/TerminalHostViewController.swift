@@ -593,6 +593,10 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
     private weak var mirrorTab: LocalTerminalTab?
     private var candidateTerminal: AccessibleTerminalView?
     private weak var desiredMirrorTab: LocalTerminalTab?
+    /// Explicit tab selection owns focus until the selected terminal has been
+    /// attached and made first responder. Metadata/title rebuilds must not
+    /// restore focus to a reused tab button during that handoff.
+    private var pendingTerminalFocusTabID: UUID?
     private var transitionGeneration: UInt64 = 0
     private var surfaceBindingGeneration: UInt64 = 0
     private var transitionInFlight = false
@@ -974,7 +978,11 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
         guard tabs.count < Self.maximumTabs else { return }
         let origin = tabs.indices.contains(selectedIndex) ? tabs[selectedIndex] : nil
         let inheritedPath = origin?.path
-        appendTab(initialCommand: nil, initialPath: inheritedPath)
+        appendTab(
+            initialCommand: nil,
+            shellLaunchMode: .accountZsh,
+            initialPath: inheritedPath
+        )
         tabs.last?.creationFallbackTabID = origin?.id
         showTab(at: tabs.count - 1)
     }
@@ -3822,13 +3830,14 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
         NSAccessibility.post(element: tabStrip, notification: .layoutChanged)
         publishLiveTerminalSessions()
         DispatchQueue.main.async { [weak self] in
-            self?.updateAllTabsVisibility()
-            self?.scrollSelectedTabToVisible()
-            guard let self,
-                  let targetID = TerminalTabFocusRestoration.target(
+            guard let self else { return }
+            self.updateAllTabsVisibility()
+            self.scrollSelectedTabToVisible()
+            guard let targetID = TerminalTabFocusRestoration.target(
                     focusedID: focusedTabID,
                     liveIDs: self.tabs.map(\.id),
                     preserve: preserveFocusedTab,
+                    terminalFocusPending: self.pendingTerminalFocusTabID != nil,
                     requestGeneration: projectionGeneration,
                     currentGeneration: self.tabProjectionGeneration
                   ),
@@ -3870,6 +3879,7 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
         #else
         focusedTypographyTerminalID = tab.brokerTerminalID
         #endif
+        pendingTerminalFocusTabID = tab.id
         publishFocusedSessionPane()
         // Selection has an explicit focus destination. Do not let an async
         // preservation callback from this projection override that handoff.
@@ -4135,15 +4145,22 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
                 return
             }
         }
-        DispatchQueue.main.async { [weak self, weak surfaceCoordinator] in
-            guard let self, let surfaceCoordinator,
+        DispatchQueue.main.async { [weak self, weak surfaceCoordinator, weak mirrorTab] in
+            guard let self, let surfaceCoordinator, let mirrorTab,
                   self.surfaceCoordinator === surfaceCoordinator,
+                  self.desiredMirrorTab === mirrorTab,
+                  self.pendingTerminalFocusTabID == nil
+                    || self.pendingTerminalFocusTabID == mirrorTab.id,
                   !self.inputLocked else { return }
-            self.view.window?.makeFirstResponder(surfaceCoordinator.view)
+            guard self.view.window?.makeFirstResponder(surfaceCoordinator.view) == true else { return }
+            if self.pendingTerminalFocusTabID == mirrorTab.id {
+                self.pendingTerminalFocusTabID = nil
+            }
         }
         #else
         guard let terminal = mirrorTerminal,
               mirrorTab === desiredMirrorTab,
+              let mirrorTab,
               !inputLocked else { return }
         terminal.exposesAccessibilitySnapshot = true
         if terminal.superview == nil {
@@ -4156,11 +4173,17 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
             ])
         }
         try? terminal.setUseMetal(true)
-        DispatchQueue.main.async { [weak self, weak terminal] in
-            guard let self, let terminal,
+        DispatchQueue.main.async { [weak self, weak terminal, weak mirrorTab] in
+            guard let self, let terminal, let mirrorTab,
                   self.mirrorTerminal === terminal,
+                  self.desiredMirrorTab === mirrorTab,
+                  self.pendingTerminalFocusTabID == nil
+                    || self.pendingTerminalFocusTabID == mirrorTab.id,
                   !self.inputLocked else { return }
-            self.view.window?.makeFirstResponder(terminal)
+            guard self.view.window?.makeFirstResponder(terminal) == true else { return }
+            if self.pendingTerminalFocusTabID == mirrorTab.id {
+                self.pendingTerminalFocusTabID = nil
+            }
         }
         #endif
     }
@@ -4594,13 +4617,14 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
         tab.createRejected = false
         tab.creating = true
         let shell = tab.shellLaunchMode.executable ?? LaunchConfiguration.shell
+        let usesAccountLoginShell = tab.shellLaunchMode == .accountZsh
+            || (tab.shellLaunchMode == .configured && LaunchConfiguration.shellOverride == nil)
         var environment = LaunchConfiguration.terminalEnvironment(
             shell: shell,
-            accountLoginShell: tab.shellLaunchMode == .configured
-              && LaunchConfiguration.shellOverride == nil
+            accountLoginShell: usesAccountLoginShell
         )
         if tab.shellLaunchMode.installsZshIntegration,
-           LaunchConfiguration.shellOverride == nil,
+           (tab.shellLaunchMode == .accountZsh || LaunchConfiguration.shellOverride == nil),
            URL(fileURLWithPath: shell).lastPathComponent == "zsh",
            let applicationSupport = FileManager.default.urls(
                for: .applicationSupportDirectory,
@@ -4620,13 +4644,11 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
             }
         }
         let arguments: [String]
-        if let cleanArguments = tab.shellLaunchMode.arguments {
-            // This is a new PTY and leaves the slow shell untouched. `-f`
-            // bypasses user startup files; no integration ZDOTDIR is installed.
-            arguments = cleanArguments
-        } else if LaunchConfiguration.shellOverride != nil {
-            // An explicit shell is a deterministic, interactive launch. Do not
-            // silently add login-startup semantics the user did not request.
+        if let launchArguments = tab.shellLaunchMode.arguments {
+            arguments = launchArguments
+        } else if LaunchConfiguration.shellOverride != nil && tab.shellLaunchMode == .configured {
+            // An explicit override applies only to configured/restored tabs;
+            // newly-created tabs intentionally remain account zsh sessions.
             arguments = []
         } else {
             // A product session is explicitly interactive and login-scoped so
@@ -4695,6 +4717,9 @@ final class TerminalHostViewController: NSViewController, NSMenuItemValidation, 
     private func handleDefinitiveCreateFailure(_ error: Error, for tab: LocalTerminalTab) {
         tab.creationOutcomeUnknown = false
         guard let failedIndex = tabs.firstIndex(where: { $0 === tab }) else { return }
+        if pendingTerminalFocusTabID == tab.id {
+            pendingTerminalFocusTabID = nil
+        }
 
         if tabs.count > 1 {
             tabs.remove(at: failedIndex)

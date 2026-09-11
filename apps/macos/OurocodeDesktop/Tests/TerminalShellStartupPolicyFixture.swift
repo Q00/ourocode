@@ -16,6 +16,9 @@ enum TerminalShellStartupPolicyFixture {
     require(TerminalShellLaunchMode.cleanZsh.arguments == ["-f", "-i"], "clean shell reads startup files")
     require(!TerminalShellLaunchMode.cleanZsh.installsZshIntegration, "clean shell installs ZDOTDIR integration")
     require(TerminalShellLaunchMode.configured.installsZshIntegration, "configured shell lost integration")
+    require(TerminalShellLaunchMode.accountZsh.executable == "/bin/zsh", "new tab shell is not zsh")
+    require(TerminalShellLaunchMode.accountZsh.arguments == ["-l", "-i"], "new tab zsh is not login-interactive")
+    require(TerminalShellLaunchMode.accountZsh.installsZshIntegration, "new tab zsh lost integration")
     print("PASS: startup identity is exact and clean-shell recovery is isolated")
   }
 }

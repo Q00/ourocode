@@ -11,3 +11,10 @@ swiftc -parse-as-library -warnings-as-errors \
   -o "$BUILD_DIR/fixture"
 
 "$BUILD_DIR/fixture"
+
+HOST="$APP_ROOT/Sources/OurocodeDesktop/TerminalHostViewController.swift"
+rg -Fq 'pendingTerminalFocusTabID = tab.id' "$HOST"
+rg -Fq 'terminalFocusPending: self.pendingTerminalFocusTabID != nil' "$HOST"
+rg -Fq 'self.pendingTerminalFocusTabID = nil' "$HOST"
+
+echo "PASS: explicit tab selection keeps terminal focus ownership through attachment"

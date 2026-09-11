@@ -6,10 +6,12 @@ enum TerminalTabFocusRestoration {
         focusedID: ID?,
         liveIDs: [ID],
         preserve: Bool,
+        terminalFocusPending: Bool = false,
         requestGeneration: UInt64,
         currentGeneration: UInt64
     ) -> ID? {
         guard preserve,
+              !terminalFocusPending,
               requestGeneration == currentGeneration,
               let focusedID,
               liveIDs.contains(focusedID) else { return nil }

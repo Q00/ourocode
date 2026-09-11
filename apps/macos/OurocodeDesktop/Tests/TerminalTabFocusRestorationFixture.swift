@@ -41,6 +41,16 @@ enum TerminalTabFocusRestorationFixture {
             currentGeneration: 6
         )
         precondition(removedFocusedTab == nil)
+        precondition(
+            TerminalTabFocusRestoration.target(
+                focusedID: "tab-a",
+                liveIDs: ["tab-a", "tab-b"],
+                preserve: true,
+                terminalFocusPending: true,
+                requestGeneration: 9,
+                currentGeneration: 9
+            ) == nil
+        )
 
         print("PASS: tab focus restoration is identity- and generation-safe")
     }

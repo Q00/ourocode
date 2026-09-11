@@ -2,23 +2,25 @@ import Foundation
 
 enum TerminalShellLaunchMode: Equatable {
   case configured
+  case accountZsh
   case cleanZsh
 
   var executable: String? {
     switch self {
     case .configured: nil
-    case .cleanZsh: "/bin/zsh"
+    case .accountZsh, .cleanZsh: "/bin/zsh"
     }
   }
 
   var arguments: [String]? {
     switch self {
     case .configured: nil
+    case .accountZsh: ["-l", "-i"]
     case .cleanZsh: ["-f", "-i"]
     }
   }
 
-  var installsZshIntegration: Bool { self == .configured }
+  var installsZshIntegration: Bool { self != .cleanZsh }
 }
 
 struct TerminalShellStartupIdentity: Equatable {
