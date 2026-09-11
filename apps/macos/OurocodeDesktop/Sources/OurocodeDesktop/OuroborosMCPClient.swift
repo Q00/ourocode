@@ -84,6 +84,7 @@ struct OuroborosSessionTab: Equatable {
     let detail: String
     var status: String
     let depth: Int
+    let parentAgentID: String?
     var target: OuroborosSignalTarget?
     var sessionIdentity: OuroborosSessionAttemptIdentityV1? = nil
     var surface: OuroborosSessionSurfaceResolutionV1 = .unbound(.notAdvertised)
@@ -94,6 +95,7 @@ struct OuroborosSessionTab: Equatable {
         detail: String,
         status: String,
         depth: Int,
+        parentAgentID: String? = nil,
         target: OuroborosSignalTarget?,
         sessionIdentity: OuroborosSessionAttemptIdentityV1? = nil,
         surface: OuroborosSessionSurfaceResolutionV1 = .unbound(.notAdvertised)
@@ -103,6 +105,7 @@ struct OuroborosSessionTab: Equatable {
         self.detail = detail
         self.status = status
         self.depth = depth
+        self.parentAgentID = parentAgentID
         self.target = target
         self.sessionIdentity = sessionIdentity
         self.surface = surface
@@ -235,6 +238,13 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
     var onRoutingContractChange: ((OuroborosRoutingContractState) -> Void)?
 
     private let ioQueue = DispatchQueue(label: "com.ourolabs.ourocode.mcp-v2")
+    private lazy var agentEventFeed: OuroborosAgentEventFeed = {
+        let feed = OuroborosAgentEventFeed(callbackQueue: ioQueue)
+        feed.onSnapshot = { [weak self] snapshot in
+            self?.applyAgentBoardSnapshot(snapshot)
+        }
+        return feed
+    }()
     private var requestID = 0
     private var pending: [Int: PendingRequest] = [:]
     private var groups: [OuroborosSessionGroup] = []
@@ -361,6 +371,7 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
             self.observationActive = false
             self.observationGeneration &+= 1
             self.cancelObservationWork(clearAuthority: true)
+            self.agentEventFeed.stop()
         }
     }
 
@@ -376,6 +387,7 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
             // 0.51.6 compact-session query overwrite that fixture with an
             // intentional version-mismatch error.
             if LaunchConfiguration.demoMode != nil { return }
+            self.synchronizeAgentEventFeed()
             guard !wasActive, self.connected else { return }
             self.refreshSessions()
             self.refreshRoutingSnapshot()
@@ -1002,6 +1014,7 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
             return
         }
         dispatchState(.starting)
+        synchronizeAgentEventFeed()
         switch LaunchConfiguration.ouroborosSelection {
         case .disabled:
             dispatchState(.offline(reason: "Ouroboros connection disabled"))
@@ -1156,6 +1169,7 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
         statusRefreshInFlight.removeAll(keepingCapacity: true)
         statusRefreshChanged = false
         cancelTargetDiscoveries(reason: "Session observation stopped")
+        agentEventFeed.stop()
         refreshInFlight = false
         collectionLoads.removeAll(keepingCapacity: true)
         activeSessionDetail = nil
@@ -1567,14 +1581,29 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
                 // silently turned an actively steerable run back into a
                 // read-only "Finding live agents" row every polling tick.
                 let retainedTabs: [OuroborosSessionTab] = {
-                    guard OuroborosActiveTargetRefreshPolicy.preservesSnapshot(
-                        executionID: session.executionID,
-                        activeExecutionID: activeSessionDetail?.executionID
-                    ) else { return [] }
-                    return groups.first(where: {
+                    let existing = groups.first(where: {
                         $0.sessionID == session.sessionID
                             && $0.executionID == session.executionID
                     })?.tabs ?? []
+                    let preserveTargets = OuroborosActiveTargetRefreshPolicy.preservesSnapshot(
+                        executionID: session.executionID,
+                        activeExecutionID: activeSessionDetail?.executionID
+                    )
+                    return existing.compactMap { tab in
+                        if tab.id.hasPrefix("board:") {
+                            guard !preserveTargets else { return tab }
+                            var base = tab
+                            _ = OuroborosSessionTargetOverlayPolicy.revoke(
+                                target: &base.target,
+                                identity: &base.sessionIdentity,
+                                surface: &base.surface
+                            )
+                            return base
+                        }
+                        return preserveTargets
+                            && OuroborosSessionTargetSnapshotPolicy.isDiscoveredAttemptID(tab.id)
+                            ? tab : nil
+                    }
                 }()
                 return OuroborosSessionGroup(
                     sessionID: session.sessionID,
@@ -1606,6 +1635,7 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
             statusRefreshQueue = candidates
             statusRefreshChanged = false
             pumpStatusRefreshQueue(observationGeneration: observationGeneration)
+            synchronizeAgentEventFeed()
             // Compact metadata is read-only. Exact steering authority remains
             // an explicit per-execution target discovery request.
             targetRefreshQueue.removeAll(keepingCapacity: true)
@@ -1645,11 +1675,16 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
                 }), self.groups[index].status != status {
                     self.groups[index].status = status
                     for tabIndex in self.groups[index].tabs.indices {
-                        self.groups[index].tabs[tabIndex].status = status
+                        if OuroborosSessionTargetSnapshotPolicy.isDiscoveredAttemptID(
+                            self.groups[index].tabs[tabIndex].id
+                        ) {
+                            self.groups[index].tabs[tabIndex].status = status
+                        }
                         if SessionLifecycleCapabilityPolicy.shouldRevokeInteractiveMetadata(
                             authoritativeStatus: status
                         ) {
                             self.groups[index].tabs[tabIndex].target = nil
+                            self.groups[index].tabs[tabIndex].sessionIdentity = nil
                             self.groups[index].tabs[tabIndex].surface = .unbound(.notAdvertised)
                         }
                     }
@@ -1996,6 +2031,13 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
         tabs.reserveCapacity(tabs.count + targets.count)
         for target in targets {
             guard let identity = target.sessionIdentity else { continue }
+            let boardID = target.nodeID.map(boardTabID)
+            if let boardID, let tabIndex = tabs.firstIndex(where: { $0.id == boardID }) {
+                tabs[tabIndex].target = target
+                tabs[tabIndex].sessionIdentity = identity
+                tabs[tabIndex].surface = target.surface
+                continue
+            }
             tabs.append(OuroborosSessionTab(
                 id: OuroborosSessionTerminalIdentityDecoderV1.stableTabID(for: identity),
                 label: target.label,
@@ -2122,6 +2164,104 @@ final class OuroborosMCPClient: MCPSessionSourceAdapter, MCPSessionDetailSourceA
         guard let error = response["error"] as? [String: Any] else { return nil }
         return bounded(error["message"] as? String ?? "MCP request failed", limit: 160)
     }
+
+    private func synchronizeAgentEventFeed() {
+        guard observationActive, LaunchConfiguration.demoMode == nil else {
+            agentEventFeed.stop()
+            return
+        }
+        let liveExecutionIDs = groups.lazy
+            .filter { SessionLifecycleCapabilityPolicy.isLive($0.status) }
+            .map(\.executionID)
+        agentEventFeed.synchronize(executionIDs: Array(liveExecutionIDs))
+    }
+
+    private func applyAgentBoardSnapshot(_ snapshot: OuroborosBoardSnapshot) {
+        guard observationActive else { return }
+        let groupIndex: Int
+        if let existingIndex = groups.firstIndex(where: {
+            $0.executionID == snapshot.executionID
+                && (snapshot.sessionID == nil || $0.sessionID == snapshot.sessionID)
+        }) {
+            groupIndex = existingIndex
+        } else {
+            let title = bounded(snapshot.goal ?? "Ouroboros · \(snapshot.executionID)", limit: 120)
+            let activity = bounded(
+                [snapshot.phase, snapshot.activity].compactMap { $0 }.joined(separator: " · "),
+                limit: 120
+            )
+            groups.insert(OuroborosSessionGroup(
+                sessionID: snapshot.sessionID ?? "dashboard:\(snapshot.executionID)",
+                executionID: snapshot.executionID,
+                title: title,
+                status: boardRunStatus(snapshot.agents),
+                activity: activity.isEmpty ? "Live agent event feed" : activity,
+                suggestedTier: nil,
+                tabs: []
+            ), at: 0)
+            groupIndex = 0
+        }
+        var group = groups[groupIndex]
+        let existingByID = Dictionary(uniqueKeysWithValues: group.tabs.map { ($0.id, $0) })
+        var boardTabs = snapshot.agents.map { agent -> OuroborosSessionTab in
+            let id = boardTabID(agent.id)
+            let existing = existingByID[id]
+            return OuroborosSessionTab(
+                id: id,
+                label: boardAgentLabel(agent),
+                detail: boardAgentDetail(agent),
+                status: boardAgentStatus(agent.status),
+                depth: agent.depth,
+                parentAgentID: agent.parentID.map(boardTabID),
+                target: existing?.target,
+                sessionIdentity: existing?.sessionIdentity,
+                surface: existing?.surface ?? .unbound(.notAdvertised)
+            )
+        }
+        let boardIDs = Set(boardTabs.map(\.id))
+        boardTabs.append(contentsOf: group.tabs.filter {
+            OuroborosSessionTargetSnapshotPolicy.isDiscoveredAttemptID($0.id)
+                && !boardIDs.contains($0.id)
+        })
+        let nextStatus = boardRunStatus(snapshot.agents)
+        guard boardTabs != group.tabs || nextStatus != group.status else { return }
+        group.tabs = boardTabs
+        group.status = nextStatus
+        groups[groupIndex] = group
+        publishGroups()
+    }
+
+    private func boardRunStatus(_ agents: [OuroborosBoardAgent]) -> String {
+        if agents.contains(where: { $0.status == "executing" }) { return "running" }
+        if agents.contains(where: { $0.status == "failed" }) { return "failed" }
+        if !agents.isEmpty && agents.allSatisfy({ $0.status == "completed" }) { return "completed" }
+        return "pending"
+    }
+
+
+    private func boardTabID(_ nodeID: String) -> String { "board:\(nodeID)" }
+
+    private func boardAgentStatus(_ status: String) -> String {
+        switch status {
+        case "executing": "running"
+        default: status
+        }
+    }
+
+    private func boardAgentLabel(_ agent: OuroborosBoardAgent) -> String {
+        if let index = agent.acceptanceCriterionIndex { return "Agent \(index) · \(agent.title)" }
+        return agent.title
+    }
+
+    private func boardAgentDetail(_ agent: OuroborosBoardAgent) -> String {
+        var parts: [String] = []
+        if let provider = agent.provider { parts.append(provider) }
+        if let model = agent.model { parts.append(model) }
+        if let tool = agent.tool { parts.append("Using \(tool)") }
+        if let tokens = agent.tokenSpend { parts.append("\(Int(tokens.rounded())) tokens") }
+        return bounded(parts.isEmpty ? agent.title : parts.joined(separator: " · "), limit: 240)
+    }
+
 
     private func publishGroups() {
         let snapshot = groups

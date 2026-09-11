@@ -2225,7 +2225,7 @@ final class SessionRailViewController: NSViewController, NSOutlineViewDataSource
 
     private func makeRoots(for mode: SessionRailMode) -> [MCPBrowserNode] {
         if mode == .sessions {
-            return LiveAgentSessionProjectionPolicy.resolve(liveTerminalSessions).compactMap { projection in
+            let terminalRoots = LiveAgentSessionProjectionPolicy.resolve(liveTerminalSessions).compactMap { projection in
                 let terminalNodes = liveTerminalNodes(projection.terminals)
                 if terminalNodes.count == 1 { return terminalNodes[0] }
                 guard !terminalNodes.isEmpty else { return nil }
@@ -2240,6 +2240,16 @@ final class SessionRailViewController: NSViewController, NSOutlineViewDataSource
                     children: terminalNodes
                 )
             }
+            let agentSources = sources.compactMap { runtime -> MCPBrowserNode? in
+                guard runtime.isEnabled, runtime.sessionAdapter != nil else { return nil }
+                return makeSourceNode(
+                    runtime,
+                    includeSessions: true,
+                    includeMCP: false,
+                    mode: mode
+                )
+            }
+            return terminalRoots + agentSources
         }
         return sources.map { runtime in
             makeSourceNode(
@@ -2349,25 +2359,14 @@ final class SessionRailViewController: NSViewController, NSOutlineViewDataSource
                 sourceID: runtime.id,
                 sessionID: group.sessionID,
                 executionID: group.executionID,
-                children: group.tabs.map { tab in
-                    let usableTarget = runtime.projectionTrusted && tab.target?.modes.contains("after_turn") == true ? tab.target : nil
-                    return MCPBrowserNode(
-                        id: "session:\(runtime.id):\(group.executionID):\(tab.id)",
-                        kind: .sessionLeaf,
-                        title: tab.label,
-                        detail: tab.detail,
-                        status: tab.status,
-                        source: runtime.catalog.serverName,
-                        sourceID: runtime.id,
-                        sessionID: group.sessionID,
-                        executionID: group.executionID,
-                        target: usableTarget,
-                        sessionIdentity: tab.sessionIdentity,
-                        surface: tab.surface
-                    )
-                }
+                children: makeSessionAgentNodes(
+                    group.tabs,
+                    group: group,
+                    runtime: runtime
+                )
             )
         }
+
         if includeSessions, runtime.isEnabled, runtime.sessionAdapter != nil {
             if sessionGroups.isEmpty {
                 let empty = SessionCollectionEmptyPresentationPolicy.resolve(
@@ -2428,6 +2427,37 @@ final class SessionRailViewController: NSViewController, NSOutlineViewDataSource
             sourceID: runtime.id,
             children: children
         )
+    }
+    private func makeSessionAgentNodes(
+        _ tabs: [OuroborosSessionTab],
+        group: OuroborosSessionGroup,
+        runtime: MCPSourceRuntime
+    ) -> [MCPBrowserNode] {
+        let knownIDs = Set(tabs.map(\.id))
+        let grouped = Dictionary(grouping: tabs) { tab -> String? in
+            guard let parent = tab.parentAgentID, knownIDs.contains(parent) else { return nil }
+            return parent
+        }
+        func build(_ tab: OuroborosSessionTab) -> MCPBrowserNode {
+            let usableTarget = runtime.projectionTrusted
+                && tab.target?.modes.contains("after_turn") == true ? tab.target : nil
+            return MCPBrowserNode(
+                id: "session:\(runtime.id):\(group.executionID):\(tab.id)",
+                kind: .sessionLeaf,
+                title: tab.label,
+                detail: tab.detail,
+                status: tab.status,
+                source: runtime.catalog.serverName,
+                sourceID: runtime.id,
+                sessionID: group.sessionID,
+                executionID: group.executionID,
+                target: usableTarget,
+                sessionIdentity: tab.sessionIdentity,
+                surface: tab.surface,
+                children: (grouped[tab.id] ?? []).map(build)
+            )
+        }
+        return (grouped[nil] ?? []).map(build)
     }
 
     private func isSessionsModeLink(_ node: MCPBrowserNode) -> Bool {
